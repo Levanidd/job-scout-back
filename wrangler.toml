@@ -3,11 +3,10 @@ main = "src/index.ts"
 compatibility_date = "2026-08-01"
 compatibility_flags = ["nodejs_compat"]
 
-# After `npx wrangler d1 create jobradar`, put the real database_id here.
 [[d1_databases]]
 binding = "DB"
-database_name = "jobradar"
-database_id = "00000000-0000-0000-0000-000000000001"
+database_name = "job-scout"
+database_id = "111a2873-66df-4e82-850f-4b812282577e"
 
 [triggers]
 crons = ["0 * * * *"]

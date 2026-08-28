@@ -19,13 +19,13 @@ cp .dev.vars.example .dev.vars
 
 npm test
 npx wrangler login
-npx wrangler d1 create jobradar
+npx wrangler d1 create job-scout
 ```
 
 Скопируйте `database_id` из вывода в `wrangler.toml`.
 
 ```bash
-npx wrangler d1 migrations apply jobradar --remote
+npx wrangler d1 migrations apply job-scout --remote
 
 npx wrangler secret put ADMIN_TOKEN
 npx wrangler secret put ANTHROPIC_API_KEY      # скоринг Haiku; без него — локальная эвристика

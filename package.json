@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler d1 migrations apply jobradar --local && wrangler dev --port 43142 --ip 0.0.0.0",
+    "dev": "wrangler d1 migrations apply job-scout --local && wrangler dev --port 43142 --ip 0.0.0.0",
     "test": "vitest run",
     "eval": "tsx scripts/eval.ts",
-    "db:migrate:local": "wrangler d1 migrations apply jobradar --local",
-    "db:migrate:remote": "wrangler d1 migrations apply jobradar --remote",
+    "db:migrate:local": "wrangler d1 migrations apply job-scout --local",
+    "db:migrate:remote": "wrangler d1 migrations apply job-scout --remote",
     "deploy": "wrangler deploy",
     "types": "wrangler types"
   },
