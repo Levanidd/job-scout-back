@@ -156,6 +156,7 @@ export async function prefilterAndScore(env: Bindings): Promise<number> {
     title: string
     location: string | null
     description: string | null
+    score: number | null
     status: string
   }>()
 
@@ -186,7 +187,10 @@ export async function prefilterAndScore(env: Bindings): Promise<number> {
     ids.push(job.id)
   }
 
-  const scores = await scoreInBatches(toScore, profile, env.ANTHROPIC_API_KEY)
+  const scores = await scoreInBatches(toScore, profile, {
+    apiKey: env.GEMINI_API_KEY,
+    model: env.GEMINI_MODEL,
+  })
   for (const item of scores) {
     await env.DB.prepare(
       `UPDATE jobs SET score = ?, score_reason = ?, flags = ? WHERE id = ?`,

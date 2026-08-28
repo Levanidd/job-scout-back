@@ -3,6 +3,10 @@ main = "src/index.ts"
 compatibility_date = "2026-08-01"
 compatibility_flags = ["nodejs_compat"]
 
+# Assets are matched first; anything without a file match (i.e. /api/*) hits the Worker.
+[assets]
+directory = "./admin/dist"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "job-scout"
@@ -16,7 +20,8 @@ ENVIRONMENT = "development"
 
 # wrangler secret put:
 # ADMIN_TOKEN
-# ANTHROPIC_API_KEY
+# GEMINI_API_KEY
+# GEMINI_MODEL           (optional, defaults to gemini-3.7-flash)
 # TELEGRAM_BOT_TOKEN
 # TELEGRAM_CHAT_ID
 # ADZUNA_APP_ID          (optional)

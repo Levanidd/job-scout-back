@@ -9,13 +9,13 @@
 
 Механизм 2 важнее. Система, следящая за тридцатью знакомыми компаниями, выдаёт тот же поток, что и LinkedIn-алерты.
 
-**Стек:** TypeScript, Hono, Cloudflare Workers + D1 + Cron, Claude API (Haiku), GitHub + Workers Builds.
+**Стек:** TypeScript, Hono, Cloudflare Workers + D1 + Cron, Gemini API, GitHub + Workers Builds.
 
 ---
 
 ## 0. Принципы
 
-1. LLM не ходит за данными. Fetch, парсинг, дедуп — обычный код. Claude только в скоринге.
+1. LLM не ходит за данными. Fetch, парсинг, дедуп — обычный код. Gemini только в скоринге.
 2. Лестница источников: публичный API → XML/RSS → агрегатор с API. Универсальный парсер HTML не писать.
 3. Идемпотентность: десять прогонов подряд дают одно уведомление.
 4. Ошибка одного источника не роняет остальные.
@@ -184,7 +184,7 @@ Guard из третьей строки обязателен: без него о�
 
 **Prefilter (до LLM, отсекает ~80%).** По title: оставить `product manager|product owner|principal product|group product|head of product|product lead|technical product|platform product|ai product`; выбросить `intern|working student|praktikum|werkstudent|ausbildung`. Не прошедшие — `score=0, status='ignored'`, описание не сохранять.
 
-**Скоринг.** `claude-haiku-4-5-20251001`, батчи по 10, **через tool use, а не «верни JSON»**: инструмент `submit_scores` со схемой `{external_id, score: 0-100, reason, flags[]}`. Схема гарантирует форму ответа и убирает парсинг фенсов. Системный промпт содержит `profile.content` из БД.
+**Скоринг.** Gemini, модель из секрета `GEMINI_MODEL` (по умолчанию `gemini-3.7-flash`), батчи по 10, **через structured output, а не «верни JSON»**: `generationConfig.responseSchema` со схемой `{external_id, score: 0-100, reason, flags[]}` и `responseMimeType: application/json`. Схема гарантирует форму ответа и убирает парсинг фенсов. Системный промпт (`systemInstruction`) содержит `profile.content` из БД.
 
 Критерии в промпте: уровень (senior/lead — плюс, junior/intern — ноль); домен (fintech, payments, banking, deposits — плюс); AI/ML-продукт — плюс; требование немецкого C1 — сильный минус; локация Berlin или Germany-remote — плюс, US-only — ноль. Флаги: `german_required`, `not_senior`, `relocation_only`, `agency_posting`.
 
@@ -192,7 +192,7 @@ Guard из третьей строки обязателен: без него о�
 
 **Доставка.** Telegram `sendMessage`, HTML, группировка по компаниям. Отдельным блоком в конце дайджеста: «новые компании: N» со ссылкой на экран Discovery.
 
-Стоимость: около 30 новых вакансий в день после prefilter × ~1.5k входных токенов на Haiku — единицы долларов в год. Оптимизировать нечего, prompt caching не нужен.
+Стоимость: около 30 новых вакансий в день после prefilter × ~1.5k входных токенов на Gemini Flash — единицы долларов в год. Оптимизировать нечего, prompt caching не нужен.
 
 ---
 
@@ -250,7 +250,7 @@ React + Vite, сборка в `admin/dist`, отдаётся через assets b
 | 0 | Репо, wrangler, Hono, `/api/health`, D1 + миграция, деплой | health отвечает с прода |
 | 1 | Адаптеры `arbeitsagentur` + `arbeitnow`, 8 стартовых query-источников | `/api/run` наполняет базу сотнями вакансий |
 | 2 | Дедуп, `closed_at` + guard, `bootstrapped`, cron, Telegram-дайджест | второй прогон подряд даёт `jobs_new = 0` |
-| 3 | Prefilter, скоринг Haiku через tool use, профиль в БД, пороги | в дайджесте только релевантное, у каждой строки reason |
+| 3 | Prefilter, скоринг Gemini через structured output, профиль в БД, пороги | в дайджесте только релевантное, у каждой строки reason |
 | 4 | `discovered_companies`, наполнение из query-прогонов | в базе десятки компаний, которых нет в sources |
 | 5 | ATS-адаптеры, `/api/detect`, `/api/discovered/:key/add` | добавление компании из Discovery ставит её на мониторинг |
 | 6 | Админка (Discovery → Jobs → Sources → Profile) + auth | работает с телефона |
@@ -274,7 +274,8 @@ alwaysApply: true
   Логику источника не хардкодить в ingest.ts.
 - К каждому адаптеру — фикстура РЕАЛЬНОГО ответа в test/fixtures/ (сохранённая curl'ом, не выдуманная)
   и тест парсинга.
-- Вызовы Claude только в src/scoring.ts, модель claude-haiku-4-5-20251001, через tool use со схемой.
+- Вызовы LLM только в src/scoring.ts: Gemini generateContent со structured output (responseSchema).
+  Модель и ключ берутся из секретов GEMINI_MODEL и GEMINI_API_KEY, в код не хардкодятся.
 - Секреты только через env-биндинги, никаких ключей в коде, тестах и фикстурах.
 - Ошибка одного источника не прерывает прогон остальных.
 - Перед предложением деплоя запускай npm test.

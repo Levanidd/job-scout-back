@@ -2,11 +2,11 @@
 
 Cloudflare Worker: поиск вакансий по ATS и query-источникам (Arbeitsagentur, Arbeitnow), дедуп, скоринг, Telegram-дайджест.
 
-Спека: [`docs/SPEC.md`](docs/SPEC.md). UI в этот репозиторий не входит — только API.
+Спека: [`docs/SPEC.md`](docs/SPEC.md). Админка на React живёт в `admin/` и раздаётся тем же воркером.
 
 ## Стек
 
-TypeScript, Hono, Cloudflare Workers, D1, Cron. Claude Haiku — опционально (`ANTHROPIC_API_KEY`).
+TypeScript, Hono, Cloudflare Workers, D1, Cron. Gemini — опционально (`GEMINI_API_KEY`).
 
 ## Поднять у себя
 
@@ -28,7 +28,8 @@ npx wrangler d1 create job-scout
 npx wrangler d1 migrations apply job-scout --remote
 
 npx wrangler secret put ADMIN_TOKEN
-npx wrangler secret put ANTHROPIC_API_KEY      # скоринг Haiku; без него — локальная эвристика
+npx wrangler secret put GEMINI_API_KEY         # скоринг Gemini; без него — локальная эвристика
+npx wrangler secret put GEMINI_MODEL           # опционально, по умолчанию gemini-3.7-flash
 npx wrangler secret put TELEGRAM_BOT_TOKEN     # дайджест; без него вакансии только в D1
 npx wrangler secret put TELEGRAM_CHAT_ID
 
@@ -38,6 +39,21 @@ npm run deploy
 Локально: `npm run dev` → `GET http://127.0.0.1:43142/api/health`.
 
 Крон `0 * * * *`: watchlist (если <20) + 6 discovery-источников.
+
+## Админка
+
+React + Vite в `admin/`, сборка в `admin/dist`, раздаётся через assets binding. Статика отвечает
+первой только на существующие файлы, поэтому `/api/*` уходит в воркер.
+
+Экраны: Discovery (главный — новые компании из query-источников), Вакансии, Источники, Профиль.
+Вход по `ADMIN_TOKEN`, который хранится в `sessionStorage` вкладки.
+
+```bash
+npm run build       # собрать админку
+npm run admin:dev   # Vite на 5173 с проксированием /api на 43142
+```
+
+В Workers Builds: build command `npm run build`, deploy command `npx wrangler deploy`.
 
 ## API
 
@@ -69,7 +85,8 @@ npm run deploy
 | Имя | Зачем |
 |---|---|
 | `ADMIN_TOKEN` | доступ к API |
-| `ANTHROPIC_API_KEY` | скоринг `claude-haiku-4-5-20251001` |
+| `GEMINI_API_KEY` | скоринг через Gemini |
+| `GEMINI_MODEL` | имя модели, по умолчанию `gemini-3.7-flash` |
 | `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` | дайджест |
 | `ADZUNA_APP_ID` + `ADZUNA_APP_KEY` | опциональный источник |
 

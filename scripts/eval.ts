@@ -13,7 +13,8 @@ type EvalJob = {
 const jobs = JSON.parse(readFileSync(new URL("../test/fixtures/eval-set.json", import.meta.url), "utf8")) as EvalJob[]
 
 async function main() {
-  const apiKey = process.env.ANTHROPIC_API_KEY
+  const apiKey = process.env.GEMINI_API_KEY
+  const model = process.env.GEMINI_MODEL
   const inputs: ScoreInput[] = jobs.map((job) => ({
     external_id: job.id,
     title: job.title,
@@ -21,7 +22,9 @@ async function main() {
     location: job.location,
     description: job.description,
   }))
-  const scored = apiKey ? await scoreJobs(inputs, "See eval-set labels.", apiKey) : inputs.map(localScore)
+  const scored = apiKey
+    ? await scoreJobs(inputs, "See eval-set labels.", { apiKey, model })
+    : inputs.map(localScore)
   const byId = new Map(scored.map((item) => [item.external_id, item]))
 
   let yesHit = 0

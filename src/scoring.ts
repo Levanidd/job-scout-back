@@ -15,38 +15,38 @@ export type ScoreOutput = {
   flags: string[]
 }
 
-const MODEL = "claude-haiku-4-5-20251001"
+export const DEFAULT_MODEL = "gemini-3.7-flash"
 
-const TOOL = {
-  name: "submit_scores",
-  description: "Return scores for the given jobs",
-  input_schema: {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      scores: {
-        type: "array",
-        items: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            external_id: { type: "string" },
-            score: { type: "integer", minimum: 0, maximum: 100 },
-            reason: { type: "string" },
-            flags: {
-              type: "array",
-              items: {
-                type: "string",
-                enum: ["german_required", "not_senior", "relocation_only", "agency_posting"],
-              },
+export type ScoringConfig = {
+  apiKey?: string
+  model?: string
+}
+
+const RESPONSE_SCHEMA = {
+  type: "object",
+  properties: {
+    scores: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          external_id: { type: "string" },
+          score: { type: "integer", minimum: 0, maximum: 100 },
+          reason: { type: "string" },
+          flags: {
+            type: "array",
+            items: {
+              type: "string",
+              enum: ["german_required", "not_senior", "relocation_only", "agency_posting"],
             },
           },
-          required: ["external_id", "score", "reason", "flags"],
         },
+        required: ["external_id", "score", "reason", "flags"],
+        propertyOrdering: ["external_id", "score", "reason", "flags"],
       },
     },
-    required: ["scores"],
   },
+  required: ["scores"],
 } as const
 
 export function scoringSystemPrompt(profile: string): string {
@@ -64,7 +64,7 @@ Scoring rules:
 - Recruiting agencies / staff augmentation: minus, flag agency_posting.
 - Return 0-100. Be calibrated: 70+ is worth a ping, 55+ only for watchlist companies.
 
-Call submit_scores with one object per job. Never invent jobs.`
+Return one entry in "scores" per job, keyed by its external_id. Never invent jobs.`
 }
 
 export function localScore(job: ScoreInput): ScoreOutput {
@@ -121,63 +121,99 @@ export function localScore(job: ScoreInput): ScoreOutput {
   }
 }
 
-type AnthropicResponse = {
-  content?: Array<{ type: string; name?: string; input?: { scores?: ScoreOutput[] } }>
+type GeminiResponse = {
+  candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
+}
+
+function renderJobs(jobs: ScoreInput[]): string {
+  return jobs
+    .map(
+      (job) =>
+        `external_id: ${job.external_id}\n${job.title} @ ${job.company} (${job.location})\n${clipDescription(job.description) ?? ""}`,
+    )
+    .join("\n\n---\n\n")
+}
+
+/** The schema constrains shape but not values, so scores still get clamped here. */
+function normalise(raw: unknown): ScoreOutput[] {
+  if (!raw || typeof raw !== "object" || !Array.isArray((raw as { scores?: unknown }).scores)) {
+    throw new Error("Gemini returned no scores array")
+  }
+  const scores = (raw as { scores: unknown[] }).scores
+  return scores.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return []
+    const item = entry as Partial<ScoreOutput>
+    if (typeof item.external_id !== "string") return []
+    const score = typeof item.score === "number" ? Math.max(0, Math.min(100, Math.round(item.score))) : 0
+    return [
+      {
+        external_id: item.external_id,
+        score,
+        reason: typeof item.reason === "string" ? item.reason : "",
+        flags: Array.isArray(item.flags) ? item.flags.filter((f): f is string => typeof f === "string") : [],
+      },
+    ]
+  })
 }
 
 export async function scoreJobs(
   jobs: ScoreInput[],
   profile: string,
-  apiKey: string | undefined,
+  config: ScoringConfig,
 ): Promise<ScoreOutput[]> {
-  if (!apiKey) return jobs.map(localScore)
+  if (!config.apiKey) return jobs.map(localScore)
   if (jobs.length === 0) return []
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 4096,
-      system: scoringSystemPrompt(profile),
-      tools: [TOOL],
-      tool_choice: { type: "tool", name: "submit_scores" },
-      messages: [
-        {
-          role: "user",
-          content: jobs
-            .map(
-              (job) =>
-                `external_id: ${job.external_id}\n${job.title} @ ${job.company} (${job.location})\n${clipDescription(job.description) ?? ""}`,
-            )
-            .join("\n\n---\n\n"),
+  const model = config.model?.trim() || DEFAULT_MODEL
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-goog-api-key": config.apiKey,
+      },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: scoringSystemPrompt(profile) }] },
+        contents: [{ role: "user", parts: [{ text: renderJobs(jobs) }] }],
+        generationConfig: {
+          temperature: 0,
+          responseMimeType: "application/json",
+          responseSchema: RESPONSE_SCHEMA,
         },
-      ],
-    }),
-  })
+      }),
+    },
+  )
   if (!res.ok) {
-    throw new Error(`Claude scoring failed: ${res.status}`)
+    const detail = (await res.text().catch(() => "")).slice(0, 200)
+    throw new Error(`Gemini scoring failed: ${res.status} ${detail}`)
   }
-  const body = (await res.json()) as AnthropicResponse
-  const tool = body.content?.find((block) => block.type === "tool_use" && block.name === "submit_scores")
-  const scores = tool?.input?.scores
-  if (!scores) throw new Error("Claude did not call submit_scores")
-  return scores
+
+  const body = (await res.json()) as GeminiResponse
+  const text = (body.candidates?.[0]?.content?.parts ?? [])
+    .map((part) => part.text ?? "")
+    .join("")
+    .trim()
+  if (!text) throw new Error("Gemini returned an empty response")
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    throw new Error("Gemini returned malformed JSON")
+  }
+  return normalise(parsed)
 }
 
 export async function scoreInBatches(
   jobs: ScoreInput[],
   profile: string,
-  apiKey: string | undefined,
+  config: ScoringConfig,
 ): Promise<ScoreOutput[]> {
   const out: ScoreOutput[] = []
   for (let i = 0; i < jobs.length; i += 10) {
     const chunk = jobs.slice(i, i + 10)
-    out.push(...(await scoreJobs(chunk, profile, apiKey)))
+    out.push(...(await scoreJobs(chunk, profile, config)))
   }
   return out
 }

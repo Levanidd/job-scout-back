@@ -1,4 +1,5 @@
 node_modules
+admin/dist
 .wrangler
 .dev.vars
 .mf

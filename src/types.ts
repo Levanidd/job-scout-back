@@ -60,7 +60,8 @@ export type JobRow = {
 export type Bindings = {
   DB: D1Database
   ADMIN_TOKEN: string
-  ANTHROPIC_API_KEY?: string
+  GEMINI_API_KEY?: string
+  GEMINI_MODEL?: string
   TELEGRAM_BOT_TOKEN?: string
   TELEGRAM_CHAT_ID?: string
   ADZUNA_APP_ID?: string
