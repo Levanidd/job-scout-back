@@ -212,7 +212,14 @@ export async function prefilterAndScore(env: Bindings): Promise<number> {
     `SELECT id FROM sources WHERE bootstrapped = 0 AND deleted_at IS NULL`,
   ).all<{ id: number }>()
   for (const source of cold.results) {
-    await env.DB.prepare(`UPDATE jobs SET status = 'ignored' WHERE source_id = ? AND status = 'new'`).bind(source.id).run()
+    // A brand-new source arrives with its whole backlog, which would make one huge digest.
+    // Mark it as already delivered rather than ignored, so it still shows up in the admin.
+    await env.DB.prepare(
+      `UPDATE jobs SET notified_at = datetime('now')
+       WHERE source_id = ? AND status = 'new' AND notified_at IS NULL`,
+    )
+      .bind(source.id)
+      .run()
     await env.DB.prepare(`UPDATE sources SET bootstrapped = 1 WHERE id = ?`).bind(source.id).run()
   }
 
