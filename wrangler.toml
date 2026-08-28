@@ -12,8 +12,10 @@ binding = "DB"
 database_name = "job-scout"
 database_id = "111a2873-66df-4e82-850f-4b812282577e"
 
+# Manual runs only: the admin "Прогнать" button hits POST /api/run.
+# An empty list also clears schedules from a previously deployed version.
 [triggers]
-crons = ["0 * * * *"]
+crons = []
 
 [vars]
 ENVIRONMENT = "development"

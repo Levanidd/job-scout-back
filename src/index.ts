@@ -234,6 +234,7 @@ app.get("/", (c) =>
 
 app.all("*", (c) => c.json({ error: "not found" }, 404))
 
+// Kept wired for the day cron comes back; wrangler.toml currently schedules nothing.
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledEvent, env: Bindings, ctx: ExecutionContext) {
