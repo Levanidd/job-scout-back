@@ -1,0 +1,26 @@
+{
+  "maxErgebnisse": 1,
+  "page": 1,
+  "size": 25,
+  "stellenangebote": [
+    {
+      "hashId": "WBTAiM10b25rJgZqiLhVIHzAF9e0rnV_DXdsRZtlb54=",
+      "beruf": "Elektroinstallateur/in",
+      "refnr": "10000-1184867112-S",
+      "arbeitgeber": "Gröger & Oltermann Sicherheits- und Elektrotechnik GmbH",
+      "aktuelleVeroeffentlichungsdatum": "2021-07-25",
+      "eintrittsdatum": "2021-07-26",
+      "arbeitsort": {
+        "plz": 90537,
+        "ort": "Berlin",
+        "strasse": "Altdorfer Straße",
+        "region": "Berlin",
+        "land": "Deutschland",
+        "koordinaten": {
+          "lat": 52.4926832,
+          "lon": 13.4025753
+        }
+      }
+    }
+  ]
+}

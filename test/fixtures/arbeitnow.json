@@ -1,0 +1,62 @@
+{
+  "data": [
+    {
+      "slug": "werkstudent-projektmanagement-glasfaserausbau-koln-416357",
+      "company_name": "GlasfaserPlus GmbH",
+      "title": "Werkstudent (m/w/d) Projektmanagement \u2013 Glasfaserausbau",
+      "description": "<br><strong>Das sind Deine Aufgaben</strong><p><strong>Gemeinsam bringen wir Deutschland ins digitale Zeitalter.\u00a0</strong>Als GlasfaserPlus bauen wir die digitale Infrastruktur von morgen und treiben den Glasfaserausbau in Deutschland voran. Daf\u00fcr suchen wir Dich als Werkstudenten (m/w/d) im Projektmanagement Rollout.<br>Deine Aufgaben<br><ul><li>\u00dcbernahme und eigenst\u00e4ndige Bearbeitung kleineren Internen Projekte zur Verbesserung des Rolloutprozesses in Zusammenarbeit verschiedenster Abteilung wie: IT, Finance, Technik und Commercial</li><li>Unterst\u00fctzung bei Systemanpassungen und Begleitung der damit verbundenen Prozesse</li><li>Nachverfolgung von Meilensteinen, Aufgaben und Projektfortschritten und fr\u00fchzeitiges Aufzeigen von Abweichungen</li><li>Erstellung und Aufbereitung von Auswertung",
+      "remote": false,
+      "url": "https://www.arbeitnow.com/jobs/companies/glasfaserplus-gmbh/werkstudent-projektmanagement-glasfaserausbau-koln-416357",
+      "tags": [],
+      "job_types": [
+        "Student",
+        "Working student",
+        "Part time"
+      ],
+      "location": "K\u00f6ln",
+      "created_at": 1787915433
+    },
+    {
+      "slug": "senior-creative-designer-munchen-16826",
+      "company_name": "Mawave Marketing GmbH",
+      "title": "Senior Creative Designer (m/w/d)",
+      "description": "<br><strong>Wer sind wir?</strong><p><p style=\"border:0px solid;margin:0px;font-family:Inter, '-apple-system', 'system-ui', 'Segoe UI', Roboto, 'Helvetica Neue', 'Open Sans', 'system-ui', '-apple-system', 'Segoe UI', Roboto, Ubuntu, Cantarell, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';font-size:14px;font-style:normal;font-weight:400;text-transform:none;background-color:rgb(255,255,255);\"><span style=\"border:0px solid;margin:0px;font-family:Arial, Helvetica, sans-serif;\">Mawave - Europas Spitzenreiter f\u00fcr Social Media Outcomes - \u00fcbersetzt Consumer Brands in Social Media. Als Social-Lead-Agentur hinter Marken wie E.ON, Jack Wolkfskin und ATU verwaltet Mawave mit knapp 200 Mio. Euro Werbevolumen das gr\u00f6\u00dfte Social Media Budget aller unabh\u00e4ngigen Agenturen in Europa.</span>",
+      "remote": false,
+      "url": "https://www.arbeitnow.com/jobs/companies/mawave-marketing-gmbh/senior-creative-designer-munchen-16826",
+      "tags": [],
+      "job_types": [
+        "Experienced",
+        "Permanent",
+        "Full time"
+      ],
+      "location": "M\u00fcnchen",
+      "created_at": 1787915425
+    },
+    {
+      "slug": "senior-treasury-manager-hamburg-330634",
+      "company_name": "Pammys\u2122 (dieseo GmbH)",
+      "title": "Senior Treasury Manager (m/w/d)",
+      "description": "<br><strong>Stellenbeschreibung</strong><p><span style=\"font-family:Verdana, Geneva, sans-serif;font-size:14px;\">Du steuerst Liquidit\u00e4t, Cashflow und Finanzierung in einem Unternehmen mit hoher Dynamik.</span><p><span style=\"font-family:Verdana, Geneva, sans-serif;font-size:14px;\">Pammys ist in nur vier Jahren auf \u00fcber\u00a0<strong>1 Million Kundinnen und Kunden</strong> gewachsen und geh\u00f6rt zu den am schnellsten wachsenden E-Commerce-Unternehmen Europas.</span></p><p><span style=\"font-family:Verdana, Geneva, sans-serif;font-size:14px;\">Heute arbeiten \u00fcber\u00a0<strong>150 Mitarbeitende</strong> an unseren Standorten in Hamburg, Kiel und unserem eigenen\u00a0<strong>22.000 m\u00b2 Logistikzentrum in Lensahn</strong> daran, Pammys zu einer globalen Footwear Brand zu entwickeln.</span></p><p><span style=\"font-f",
+      "remote": false,
+      "url": "https://www.arbeitnow.com/jobs/companies/pammys-dieseo-gmbh/senior-treasury-manager-hamburg-330634",
+      "tags": [],
+      "job_types": [
+        "Experienced",
+        "Permanent",
+        "Full time"
+      ],
+      "location": "Hamburg",
+      "created_at": 1787915420
+    }
+  ],
+  "meta": {
+    "current_page": 1,
+    "current_page_url": "https://www.arbeitnow.com/api/job-board-api?page=1",
+    "from": 1,
+    "path": "https://www.arbeitnow.com/api/job-board-api",
+    "per_page": 175,
+    "to": 175,
+    "terms": "This is a free public API for jobs, please do not abuse. I would appreciate linking back to the site. By using the API, you agree to the terms of service present on Arbeitnow.com",
+    "info": "Jobs are updated every hour and order by the `created_at` timestamp. Use `?page=` to paginate. Read more information here: https://www.arbeitnow.com/blog/job-board-api"
+  }
+}

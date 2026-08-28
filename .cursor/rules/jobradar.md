@@ -1,0 +1,15 @@
+---
+alwaysApply: true
+---
+- Проект описан в docs/SPEC.md. Сверяйся со схемой БД и контрактом Adapter оттуда.
+- Runtime — Cloudflare Workers. Нет Node API: fs, path, http, Buffer, DOMParser недоступны.
+  XML парсить через fast-xml-parser, HTML — через HTMLRewriter.
+- TypeScript strict, никаких any в публичных сигнатурах.
+- Новый источник = файл в src/adapters/, реализующий Adapter, зарегистрированный в adapters/index.ts.
+  Логику источника не хардкодить в ingest.ts.
+- К каждому адаптеру — фикстура РЕАЛЬНОГО ответа в test/fixtures/ (сохранённая curl'ом, не выдуманная)
+  и тест парсинга.
+- Вызовы Claude только в src/scoring.ts, модель claude-haiku-4-5-20251001, через tool use со схемой.
+- Секреты только через env-биндинги, никаких ключей в коде, тестах и фикстурах.
+- Ошибка одного источника не прерывает прогон остальных.
+- Перед предложением деплоя запускай npm test.
