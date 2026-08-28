@@ -55,10 +55,22 @@ export type DetectResult = {
   ok: boolean
   jobs_found: number
   sample: string[]
+  guessed: boolean
   error?: string
 }
 
 export type BulkDetectResult = DetectResult & { url: string }
+
+export type ThinkingLevel = "LOW" | "MEDIUM" | "HIGH"
+
+export type ModelOption = { id: string; label: string }
+
+export type Settings = {
+  model: string
+  thinking_level: ThinkingLevel
+  source: "database" | "secret" | "default"
+  key_configured: boolean
+}
 
 export type RunResult = {
   source_id: number

@@ -3,6 +3,8 @@ import { cors } from "hono/cors"
 
 import { addDiscovered, prefilterAndScore, runCycle, runSource } from "./ingest"
 import { detectUrl } from "./detect"
+import { isThinkingLevel, listModels, validateModel, type ThinkingLevel } from "./scoring"
+import { SETTING_MODEL, SETTING_THINKING, settingsView, writeSetting } from "./settings"
 import type { Bindings, SourceRow } from "./types"
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -112,6 +114,7 @@ app.post("/api/sources/bulk-detect", async (c) => {
         ok: false,
         jobs_found: 0,
         sample: [],
+        guessed: false,
         error: error instanceof Error ? error.message : String(error),
       })
     }
@@ -208,6 +211,42 @@ app.post("/api/profile/rescore", async (c) => {
   ).run()
   const scored = await prefilterAndScore(c.env)
   return c.json({ ok: true, scored })
+})
+
+app.get("/api/settings", async (c) => c.json(await settingsView(c.env)))
+
+app.get("/api/models", async (c) => {
+  if (!c.env.GEMINI_API_KEY) return c.json({ models: [], error: "GEMINI_API_KEY is not configured" })
+  try {
+    return c.json({ models: await listModels(c.env.GEMINI_API_KEY) })
+  } catch (error) {
+    return c.json({ models: [], error: error instanceof Error ? error.message : String(error) }, 502)
+  }
+})
+
+app.put("/api/settings", async (c) => {
+  const body = await c.req.json<{ model?: string; thinking_level?: string }>()
+  const model = body.model?.trim()
+  const thinking = body.thinking_level?.trim()
+
+  if (thinking && !isThinkingLevel(thinking)) return c.json({ error: "bad thinking_level" }, 400)
+  if (!model && !thinking) return c.json({ error: "nothing to update" }, 400)
+
+  if (model) {
+    if (!c.env.GEMINI_API_KEY) return c.json({ error: "GEMINI_API_KEY is not configured" }, 400)
+    const level: ThinkingLevel = isThinkingLevel(thinking ?? "")
+      ? (thinking as ThinkingLevel)
+      : (await settingsView(c.env)).thinking_level
+    try {
+      await validateModel(c.env.GEMINI_API_KEY, model, level)
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 400)
+    }
+    await writeSetting(c.env, SETTING_MODEL, model)
+  }
+  if (thinking) await writeSetting(c.env, SETTING_THINKING, thinking)
+
+  return c.json(await settingsView(c.env))
 })
 
 app.post("/api/run", async (c) => {

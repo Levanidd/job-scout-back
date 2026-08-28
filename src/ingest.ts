@@ -4,6 +4,7 @@ import { detectUrl } from "./detect"
 import { renderDigest, sendTelegram } from "./notify"
 import { clipDescription, passesPrefilter } from "./prefilter"
 import { scoreInBatches, type ScoreInput } from "./scoring"
+import { resolveScoringConfig } from "./settings"
 import type { Bindings, SourceRow } from "./types"
 
 type RunResult = {
@@ -187,10 +188,7 @@ export async function prefilterAndScore(env: Bindings): Promise<number> {
     ids.push(job.id)
   }
 
-  const scores = await scoreInBatches(toScore, profile, {
-    apiKey: env.GEMINI_API_KEY,
-    model: env.GEMINI_MODEL,
-  })
+  const scores = await scoreInBatches(toScore, profile, await resolveScoringConfig(env))
   for (const item of scores) {
     await env.DB.prepare(
       `UPDATE jobs SET score = ?, score_reason = ?, flags = ? WHERE id = ?`,

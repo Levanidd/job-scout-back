@@ -5,8 +5,11 @@ import type {
   DiscoveredCompany,
   Job,
   JobStatus,
+  ModelOption,
   RunResult,
+  Settings,
   Source,
+  ThinkingLevel,
   Tier,
 } from "./types"
 
@@ -147,5 +150,17 @@ export const api = {
 
   runCycle(): Promise<CycleResult> {
     return post("/run")
+  },
+
+  settings(): Promise<Settings> {
+    return request("/settings")
+  },
+
+  models(): Promise<{ models: ModelOption[]; error?: string }> {
+    return request("/models")
+  },
+
+  saveSettings(body: { model?: string; thinking_level?: ThinkingLevel }): Promise<Settings> {
+    return request("/settings", { method: "PUT", body: JSON.stringify(body) })
   },
 }

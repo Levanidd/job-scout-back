@@ -17,9 +17,20 @@ export type ScoreOutput = {
 
 export const DEFAULT_MODEL = "gemini-3.7-flash"
 
+export const THINKING_LEVELS = ["LOW", "MEDIUM", "HIGH"] as const
+export type ThinkingLevel = (typeof THINKING_LEVELS)[number]
+
+/** Scoring is classification, not reasoning — deeper thinking mostly buys output tokens. */
+export const DEFAULT_THINKING_LEVEL: ThinkingLevel = "LOW"
+
 export type ScoringConfig = {
   apiKey?: string
   model?: string
+  thinkingLevel?: ThinkingLevel
+}
+
+export function isThinkingLevel(value: string): value is ThinkingLevel {
+  return (THINKING_LEVELS as readonly string[]).includes(value)
 }
 
 const RESPONSE_SCHEMA = {
@@ -156,6 +167,85 @@ function normalise(raw: unknown): ScoreOutput[] {
   })
 }
 
+const THINKING_UNSUPPORTED = /thinking level/i
+
+async function generate(
+  apiKey: string,
+  model: string,
+  payload: Record<string, unknown>,
+): Promise<GeminiResponse> {
+  const send = (body: Record<string, unknown>) =>
+    fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
+        body: JSON.stringify(body),
+      },
+    )
+
+  let res = await send(payload)
+
+  if (res.status === 400) {
+    const detail = await res.text().catch(() => "")
+    if (!THINKING_UNSUPPORTED.test(detail)) {
+      throw new Error(`Gemini call failed: 400 ${detail.slice(0, 200)}`)
+    }
+    // Models accept different subsets of thinking levels; fall back to the model default.
+    const generationConfig = { ...(payload.generationConfig as Record<string, unknown> | undefined) }
+    delete generationConfig.thinkingConfig
+    res = await send({ ...payload, generationConfig })
+  }
+
+  if (!res.ok) {
+    const detail = (await res.text().catch(() => "")).slice(0, 200)
+    throw new Error(`Gemini call failed: ${res.status} ${detail}`)
+  }
+  return (await res.json()) as GeminiResponse
+}
+
+export type ModelOption = { id: string; label: string }
+
+const MODEL_ALIASES = new Set(["gemini-flash-latest", "gemini-flash-lite-latest", "gemini-pro-latest"])
+const NON_SCORING = /tts|image|transcribe|omni|robotics|customtools|research|nano-banana|lyria|embedding|computer/
+
+function isScoringModel(id: string): boolean {
+  if (NON_SCORING.test(id)) return false
+  return MODEL_ALIASES.has(id) || /^gemini-3/.test(id)
+}
+
+type ModelsResponse = {
+  models?: Array<{ name?: string; displayName?: string; supportedGenerationMethods?: string[] }>
+}
+
+export async function listModels(apiKey: string): Promise<ModelOption[]> {
+  const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200", {
+    headers: { "x-goog-api-key": apiKey },
+  })
+  if (!res.ok) {
+    const detail = (await res.text().catch(() => "")).slice(0, 200)
+    throw new Error(`Gemini model list failed: ${res.status} ${detail}`)
+  }
+  const body = (await res.json()) as ModelsResponse
+  return (body.models ?? [])
+    .filter((model) => model.supportedGenerationMethods?.includes("generateContent"))
+    .map((model) => ({ id: (model.name ?? "").replace(/^models\//, ""), label: model.displayName ?? "" }))
+    .filter((model) => model.id && isScoringModel(model.id))
+    .sort((a, b) => b.id.localeCompare(a.id))
+}
+
+/** Throws if the model cannot actually be called, so a bad pick fails at save time. */
+export async function validateModel(
+  apiKey: string,
+  model: string,
+  thinkingLevel: ThinkingLevel,
+): Promise<void> {
+  await generate(apiKey, model, {
+    contents: [{ role: "user", parts: [{ text: "ping" }] }],
+    generationConfig: { temperature: 0, thinkingConfig: { thinkingLevel } },
+  })
+}
+
 export async function scoreJobs(
   jobs: ScoreInput[],
   profile: string,
@@ -165,31 +255,17 @@ export async function scoreJobs(
   if (jobs.length === 0) return []
 
   const model = config.model?.trim() || DEFAULT_MODEL
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-goog-api-key": config.apiKey,
-      },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: scoringSystemPrompt(profile) }] },
-        contents: [{ role: "user", parts: [{ text: renderJobs(jobs) }] }],
-        generationConfig: {
-          temperature: 0,
-          responseMimeType: "application/json",
-          responseSchema: RESPONSE_SCHEMA,
-        },
-      }),
+  const body = await generate(config.apiKey, model, {
+    systemInstruction: { parts: [{ text: scoringSystemPrompt(profile) }] },
+    contents: [{ role: "user", parts: [{ text: renderJobs(jobs) }] }],
+    generationConfig: {
+      temperature: 0,
+      responseMimeType: "application/json",
+      responseSchema: RESPONSE_SCHEMA,
+      thinkingConfig: { thinkingLevel: config.thinkingLevel ?? DEFAULT_THINKING_LEVEL },
     },
-  )
-  if (!res.ok) {
-    const detail = (await res.text().catch(() => "")).slice(0, 200)
-    throw new Error(`Gemini scoring failed: ${res.status} ${detail}`)
-  }
+  })
 
-  const body = (await res.json()) as GeminiResponse
   const text = (body.candidates?.[0]?.content?.parts ?? [])
     .map((part) => part.text ?? "")
     .join("")

@@ -160,7 +160,14 @@ export function Sources() {
             <div className="row-tight" style={{ flexWrap: "wrap" }}>
               <span className="badge badge-accent">{pending.ats}</span>
               <span className="badge badge-positive">{pending.jobs_found} вакансий</span>
+              {pending.guessed ? <span className="badge">угадано по домену</span> : null}
             </div>
+            {pending.guessed ? (
+              <p className="muted">
+                Ссылки на ATS на странице не было, доска найдена по имени домена ({pending.token}). Проверьте, что
+                вакансии ниже — действительно этой компании.
+              </p>
+            ) : null}
             {pending.sample.length > 0 ? (
               <ul className="muted" style={{ margin: 0, paddingLeft: 18 }}>
                 {pending.sample.map((title) => (
