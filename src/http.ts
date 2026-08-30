@@ -55,3 +55,42 @@ export function str(value: unknown): string | undefined {
   if (typeof value === "number") return String(value)
   return undefined
 }
+
+/**
+ * Accept a URL from a feed payload only when it is HTTPS and stays on the
+ * board's own host. A board that starts emitting third-party links is a
+ * change we want to notice, not follow.
+ */
+export function trustedUrl(value: unknown, host: string): string | undefined {
+  const raw = str(value)?.trim()
+  if (!raw) return undefined
+  try {
+    const parsed = new URL(raw)
+    if (parsed.protocol !== "https:") return undefined
+    const found = parsed.hostname.toLowerCase()
+    if (found !== host && !found.endsWith(`.${host}`)) return undefined
+    return parsed.href
+  } catch {
+    return undefined
+  }
+}
+
+const MS_THRESHOLD = 1_000_000_000_000
+
+/** Feeds date postings as epoch seconds, epoch ms, or a parseable string. */
+export function toIso(value: unknown): string | undefined {
+  let ms: number | undefined
+  if (typeof value === "number" && Number.isFinite(value)) {
+    ms = value < MS_THRESHOLD ? value * 1000 : value
+  } else if (typeof value === "string" && value.trim()) {
+    const numeric = Number(value)
+    if (Number.isFinite(numeric)) {
+      ms = numeric < MS_THRESHOLD ? numeric * 1000 : numeric
+    } else {
+      const parsed = Date.parse(value)
+      ms = Number.isNaN(parsed) ? undefined : parsed
+    }
+  }
+  if (ms === undefined || !Number.isFinite(ms)) return undefined
+  return new Date(ms).toISOString()
+}

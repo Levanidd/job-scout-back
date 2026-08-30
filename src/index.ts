@@ -1,6 +1,7 @@
 import { Hono } from "hono"
 import { cors } from "hono/cors"
 
+import { adapters } from "./adapters"
 import { addDiscovered, prefilterAndScore, runCycle, runSource } from "./ingest"
 import { detectUrl } from "./detect"
 import { isThinkingLevel, listModels, validateModel, type ThinkingLevel } from "./scoring"
@@ -55,7 +56,10 @@ app.post("/api/sources", async (c) => {
        deleted_at = NULL, enabled = 1, label = excluded.label, tier = excluded.tier, careers_url = excluded.careers_url`,
   )
     .bind(
-      body.kind ?? "company",
+      // The adapter knows whether its token is a company board or a search
+      // query; the admin never sends this, and a query feed filed as a company
+      // never feeds Discovery.
+      body.kind ?? adapters.find((item) => item.provider === body.provider)?.kind ?? "company",
       body.tier ?? "watchlist",
       body.label,
       body.provider,

@@ -4,11 +4,15 @@ import { arbeitsagentur } from "./arbeitsagentur"
 import { arbeitnow } from "./arbeitnow"
 import { ashby } from "./ashby"
 import { greenhouse } from "./greenhouse"
+import { himalayas } from "./himalayas"
+import { jobicy } from "./jobicy"
 import { lever } from "./lever"
 import { personio } from "./personio"
 import { recruitee } from "./recruitee"
 import { rss } from "./rss"
 import { smartrecruiters } from "./smartrecruiters"
+import { thehub } from "./thehub"
+import { weworkremotely } from "./weworkremotely"
 import { workable } from "./workable"
 
 export const adapters: Adapter[] = [
@@ -22,6 +26,12 @@ export const adapters: Adapter[] = [
   arbeitsagentur,
   arbeitnow,
   adzuna,
+  himalayas,
+  jobicy,
+  thehub,
+  // Must precede rss, whose detect() would claim /remote-jobs.rss first.
+  weworkremotely,
+  // rss matches on a generic path pattern, so it stays the last resort.
   rss,
 ]
 

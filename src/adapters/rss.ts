@@ -4,9 +4,9 @@ import { fetchText, str } from "../http"
 import { clipDescription } from "../prefilter"
 import type { Adapter, RawJob } from "../types"
 
-const parser = new XMLParser({ ignoreAttributes: false, cdataPropName: "__cdata" })
+export const parser = new XMLParser({ ignoreAttributes: false, cdataPropName: "__cdata" })
 
-function textOf(value: unknown): string | undefined {
+export function textOf(value: unknown): string | undefined {
   if (typeof value === "string") return value
   if (value && typeof value === "object") {
     const rec = value as Record<string, unknown>

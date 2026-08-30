@@ -5,14 +5,19 @@ import { parseArbeitsagentur } from "../../src/adapters/arbeitsagentur"
 import { parseArbeitnow } from "../../src/adapters/arbeitnow"
 import { parseAshby } from "../../src/adapters/ashby"
 import { parseGreenhouse } from "../../src/adapters/greenhouse"
+import { parseHimalayas } from "../../src/adapters/himalayas"
+import { parseJobicy } from "../../src/adapters/jobicy"
 import { parseLever } from "../../src/adapters/lever"
 import { parsePersonio } from "../../src/adapters/personio"
 import { parseRecruitee } from "../../src/adapters/recruitee"
 import { parseRss } from "../../src/adapters/rss"
 import { parseSmartRecruiters } from "../../src/adapters/smartrecruiters"
+import { parseTheHub } from "../../src/adapters/thehub"
+import { parseWeWorkRemotely } from "../../src/adapters/weworkremotely"
 import { parseWorkable } from "../../src/adapters/workable"
 import { parseAdzuna } from "../../src/adapters/adzuna"
 import { detectToken } from "../../src/adapters"
+import { toIso } from "../../src/http"
 
 function load(name: string) {
   return readFileSync(new URL(`../fixtures/${name}`, import.meta.url), "utf8")
@@ -119,6 +124,108 @@ describe("adapter parsers", () => {
       ],
     })
     expect(jobs[0]?.company).toBe("Acme")
+  })
+
+  it("parses himalayas feed", () => {
+    const jobs = parseHimalayas({
+      jobs: [
+        {
+          title: "Product Lead, AI Email App",
+          companyName: "Bjak",
+          locationRestrictions: ["China"],
+          description: "About the role",
+          pubDate: 1787983183,
+          guid: "https://himalayas.app/companies/bjak/jobs/product-lead",
+          applicationLink: "https://himalayas.app/companies/bjak/jobs/product-lead",
+        },
+      ],
+    })
+    expect(jobs[0]?.company).toBe("Bjak")
+    expect(jobs[0]?.location).toBe("China")
+    expect(jobs[0]?.postedAt?.slice(0, 4)).toBe("2026")
+  })
+
+  it("filters himalayas by needle but keeps everything on *", () => {
+    const payload = { jobs: [{ title: "Backend Engineer", guid: "https://himalayas.app/x", companyName: "Acme" }] }
+    expect(parseHimalayas(payload, "product")).toEqual([])
+    expect(parseHimalayas(payload, "*").length).toBe(1)
+  })
+
+  it("parses jobicy feed", () => {
+    const jobs = parseJobicy({
+      jobs: [
+        {
+          id: 151960,
+          url: "https://jobicy.com/jobs/151960-growth-marketing-manager",
+          jobTitle: "Growth Marketing Manager",
+          companyName: "Keyfactor, Inc.",
+          jobGeo: "Canada, USA",
+          jobDescription: "<p>About Keyfactor</p>",
+          pubDate: "2026-08-28T18:59:52+00:00",
+        },
+      ],
+    })
+    expect(jobs[0]?.externalId).toBe("151960")
+    expect(jobs[0]?.location).toBe("Canada, USA")
+    expect(jobs[0]?.description).toBe("About Keyfactor")
+  })
+
+  it("parses thehub docs and merges featured", () => {
+    const jobs = parseTheHub({
+      jobs: {
+        pages: 1,
+        docs: [
+          {
+            id: "6a58cbb9e8c4ea90606db214",
+            title: "Head of Germany",
+            location: { country: "Germany", locality: "Berlin" },
+            company: { name: "Complir" },
+          },
+        ],
+      },
+      featuredJobs: {
+        docs: [{ id: "feat1", title: "GTM Lead, DACH", isRemote: true, company: { name: "Sumary" } }],
+      },
+    })
+    expect(jobs.length).toBe(2)
+    expect(jobs[0]?.url).toBe("https://thehub.io/jobs/6a58cbb9e8c4ea90606db214")
+    expect(jobs[0]?.location).toBe("Berlin, Germany")
+    expect(jobs[1]?.location).toBe("Remote")
+  })
+
+  it("drops feed rows whose link left the board's host", () => {
+    const jobs = parseHimalayas({
+      jobs: [
+        { title: "Product Manager", guid: "http://himalayas.app/insecure", companyName: "A" },
+        { title: "Product Manager", guid: "https://evil.example/phish", companyName: "B" },
+        { title: "Product Manager", guid: "https://himalayas.app/ok", companyName: "C" },
+      ],
+    })
+    expect(jobs.map((job) => job.company)).toEqual(["C"])
+  })
+
+  it("normalises epoch seconds, epoch ms and date strings", () => {
+    expect(toIso(1787983183)?.slice(0, 4)).toBe("2026")
+    expect(toIso(1787983183000)?.slice(0, 4)).toBe("2026")
+    expect(toIso("2026-08-28T18:59:52+00:00")).toBe("2026-08-28T18:59:52.000Z")
+    expect(toIso("not a date")).toBeUndefined()
+    expect(toIso(null)).toBeUndefined()
+  })
+
+  it("splits the company out of a we work remotely title", () => {
+    const xml = `<?xml version="1.0"?><rss><channel>
+      <item><title>Acme: Senior Product Manager</title><region>Europe</region>
+        <link>https://weworkremotely.com/remote-jobs/acme-spm</link>
+        <pubDate>Fri, 28 Aug 2026 10:00:00 +0000</pubDate></item>
+      <item><title>Standalone Product Role</title><category>Anywhere</category>
+        <link>https://weworkremotely.com/remote-jobs/solo</link></item>
+    </channel></rss>`
+    const jobs = parseWeWorkRemotely(xml)
+    expect(jobs[0]?.company).toBe("Acme")
+    expect(jobs[0]?.title).toBe("Senior Product Manager")
+    expect(jobs[0]?.location).toBe("Europe")
+    expect(jobs[1]?.company).toBeUndefined()
+    expect(jobs[1]?.title).toBe("Standalone Product Role")
   })
 
   it("detects ATS tokens from URLs", () => {
