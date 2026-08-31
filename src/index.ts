@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono"
 import { cors } from "hono/cors"
 
 import { adapters } from "./adapters"
-import { addDiscovered, notifyNew, pickSources, prefilterAndScore, runCycle, runSource, trackedCompanyKeys } from "./ingest"
+import { addDiscovered, notifyNew, pickSources, prefilterAndScore, runCycle, runSource, scoreOneJob, trackedCompanyKeys } from "./ingest"
 import { detectUrl } from "./detect"
 import { isThinkingLevel, listModels, validateModel, type ThinkingLevel } from "./scoring"
 import { SETTING_MODEL, SETTING_THINKING, settingsView, writeSetting } from "./settings"
@@ -368,6 +368,17 @@ app.patch("/api/jobs/:id", async (c) => {
   if (!allowed.includes(body.status)) return c.json({ error: "bad status" }, 400)
   await c.env.DB.prepare(`UPDATE jobs SET status = ? WHERE id = ?`).bind(body.status, id).run()
   return c.json({ ok: true })
+})
+
+app.post("/api/jobs/:id/score", async (c) => {
+  const id = c.req.param("id")
+  try {
+    return c.json(await scoreOneJob(c.env, id))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (message === "not found") return c.json({ error: "not found" }, 404)
+    return c.json({ error: message }, 502)
+  }
 })
 
 app.get("/api/profile", async (c) => {

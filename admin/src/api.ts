@@ -110,6 +110,15 @@ export const api = {
     })
   },
 
+  scoreJob(id: string): Promise<{
+    score: number
+    score_reason: string | null
+    flags: string | null
+    status: JobStatus
+  }> {
+    return post(`/jobs/${encodeURIComponent(id)}/score`)
+  },
+
   discovered(state: string): Promise<{ companies: DiscoveredCompany[] }> {
     return request(`/discovered?state=${encodeURIComponent(state)}`)
   },

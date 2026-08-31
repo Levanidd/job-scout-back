@@ -35,7 +35,7 @@ const DEFAULT_DIR: Record<JobSort, "asc" | "desc"> = {
 
 export function Jobs({ preset }: { preset?: JobFilters }) {
   const run = useAction()
-  const { refreshTick, refresh } = useApp()
+  const { refreshTick, refresh, notify } = useApp()
   const [filters, setFilters] = useState<JobFilters>({
     min_score: 55,
     sort: "score",
@@ -45,6 +45,7 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
   const [jobs, setJobs] = useState<Job[] | null>(null)
   const [companies, setCompanies] = useState<CompanyFacet[]>([])
   const [open, setOpen] = useState<string | null>(null)
+  const [scoring, setScoring] = useState<string | null>(null)
 
   // Unchecking "откликнулся" should not erase where the job stood before.
   const previous = useRef(new Map<string, JobStatus>())
@@ -80,6 +81,28 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
     const result = await run(() => api.setJobStatus(job.id, next))
     if (!result) return
     setJobs((prev) => prev?.map((item) => (item.id === job.id ? { ...item, status: next } : item)) ?? null)
+  }
+
+  async function rescore(job: Job) {
+    setScoring(job.id)
+    const result = await run(() => api.scoreJob(job.id))
+    setScoring(null)
+    if (!result) return
+    notify(`Score ${result.score}`)
+    setJobs(
+      (prev) =>
+        prev?.map((item) =>
+          item.id === job.id
+            ? {
+                ...item,
+                score: result.score,
+                score_reason: result.score_reason,
+                flags: result.flags,
+                status: result.status,
+              }
+            : item,
+        ) ?? null,
+    )
   }
 
   async function toggleApplied(job: Job) {
@@ -259,7 +282,7 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
               <tbody>
                 {jobs.map((job) => (
                   <Fragment key={job.id}>
-                    <tr className={job.status === "applied" ? "is-applied" : undefined}>
+                    <tr className={`${job.status === "applied" ? "is-applied" : ""} ${scoring === job.id ? "is-busy" : ""}`.trim()}>
                       <td className="col-check">
                         <input
                           type="checkbox"
@@ -277,6 +300,14 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
                           <span className="cell-company-inline">{job.company}</span>
                           {job.location ? <span>{job.location}</span> : null}
                         </div>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          disabled={scoring === job.id}
+                          onClick={() => void rescore(job)}
+                        >
+                          {scoring === job.id ? "Считаю…" : "Пересчитать score"}
+                        </button>
                       </td>
                       <td className="col-company">{job.company}</td>
                       <td className="col-score">
@@ -328,6 +359,13 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
                             </span>
                           </div>
                           <div className="row">
+                            <button
+                              className="btn btn-primary btn-sm"
+                              disabled={scoring === job.id}
+                              onClick={() => void rescore(job)}
+                            >
+                              {scoring === job.id ? "Считаю…" : "Пересчитать score"}
+                            </button>
                             {ACTIONS.map((action) => (
                               <button
                                 key={action.status}

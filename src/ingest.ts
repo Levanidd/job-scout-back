@@ -3,7 +3,7 @@ import { companyKey, dedupKey, jobHash } from "./company-key"
 import { detectUrl } from "./detect"
 import { renderDigest, sendTelegram } from "./notify"
 import { clipDescription, passesPrefilter } from "./prefilter"
-import { scoreInBatches, type ScoreInput } from "./scoring"
+import { scoreInBatches, scoreJobs, type ScoreInput } from "./scoring"
 import { resolveScoringConfig } from "./settings"
 import type { Bindings, SourceRow } from "./types"
 
@@ -291,6 +291,67 @@ export async function prefilterAndScore(
   }
 
   return { scored: scores.length, remaining }
+}
+
+/**
+ * Scores one posting regardless of prefilter or an existing verdict.
+ * A manual click means "judge this row", not "queue whatever is still new".
+ */
+export async function scoreOneJob(
+  env: Bindings,
+  id: string,
+): Promise<{ score: number; score_reason: string | null; flags: string | null; status: string }> {
+  const job = await env.DB.prepare(
+    `SELECT id, company, company_key, title, location, description, status, closed_at
+     FROM jobs WHERE id = ?`,
+  )
+    .bind(id)
+    .first<{
+      id: string
+      company: string
+      company_key: string
+      title: string
+      location: string | null
+      description: string | null
+      status: string
+      closed_at: string | null
+    }>()
+  if (!job || job.closed_at) throw new Error("not found")
+
+  const profileRow = await env.DB.prepare(`SELECT content FROM profile WHERE id = 1`).first<{ content: string }>()
+  const scores = await scoreJobs(
+    [
+      {
+        external_id: job.id,
+        title: job.title,
+        company: job.company,
+        location: job.location ?? "",
+        description: job.description ?? "",
+      },
+    ],
+    profileRow?.content ?? "",
+    await resolveScoringConfig(env),
+  )
+  const item = scores.find((row) => row.external_id === job.id) ?? scores[0]
+  if (!item) throw new Error("Модель не вернула оценку")
+
+  const flags = JSON.stringify(item.flags)
+  const status = job.status === "off_profile" ? "new" : job.status
+  await env.DB.prepare(`UPDATE jobs SET score = ?, score_reason = ?, flags = ?, status = ? WHERE id = ?`)
+    .bind(item.score, item.reason || null, flags, status, job.id)
+    .run()
+
+  if (job.company_key) {
+    await env.DB.prepare(
+      `UPDATE discovered_companies
+       SET best_score = CASE WHEN best_score IS NULL OR best_score < ? THEN ? ELSE best_score END
+       WHERE company_key = ?`,
+    )
+      .bind(item.score, item.score, job.company_key)
+      .run()
+  }
+
+  return { score: item.score, score_reason: item.reason || null, flags, status }
 }
 
 export async function notifyNew(env: Bindings): Promise<number> {
