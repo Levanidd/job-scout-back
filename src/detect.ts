@@ -1,5 +1,6 @@
 import { detectToken, getAdapter } from "./adapters"
 import { fetchResponse } from "./http"
+import { BROWSER_LIKE_USER_AGENT } from "./vendor/career-ops/_http.mjs"
 import type { AdapterEnv, RawJob } from "./types"
 
 /** rss is a company adapter too, but its token is a feed URL — a bare slug means nothing there. */
@@ -7,7 +8,7 @@ const GUESSABLE = ["greenhouse", "lever", "ashby", "personio", "workable", "smar
 
 const HOST_NOISE = new Set(["www", "careers", "career", "jobs", "job", "apply", "hiring", "join"])
 
-const ATS_MARKERS: { re: RegExp; provider: string; group: number }[] = [
+const ATS_MARKERS: { re: RegExp; provider: string; group: number; useUrl?: boolean }[] = [
   // The embed script is served both as `job_board?for=` and `job_board/js?for=`.
   { re: /boards\.greenhouse\.io\/embed\/job_board(?:\/js)?\?for=([a-z0-9_-]+)/i, provider: "greenhouse", group: 1 },
   { re: /job-boards\.greenhouse\.io\/([a-z0-9_-]+)/i, provider: "greenhouse", group: 1 },
@@ -19,6 +20,11 @@ const ATS_MARKERS: { re: RegExp; provider: string; group: number }[] = [
   { re: /apply\.workable\.com\/([a-z0-9_-]+)/i, provider: "workable", group: 1 },
   { re: /careers\.smartrecruiters\.com\/([a-z0-9_-]+)/i, provider: "smartrecruiters", group: 1 },
   { re: /([a-z0-9-]+)\.recruitee\.com/i, provider: "recruitee", group: 1 },
+  // A fund's talent network runs on the fund's own domain, so nothing names the
+  // vendor except its assets. The page URL is the token; the adapter takes it
+  // from there.
+  { re: /cdn\.getro\.com/i, provider: "getro", group: 0, useUrl: true },
+  { re: /"board"\s*:\s*\{\s*"id"\s*:\s*"[a-z0-9_-]+"/i, provider: "consider", group: 0, useUrl: true },
 ]
 
 export type DetectResult = {
@@ -33,10 +39,11 @@ export type DetectResult = {
 
 type Found = { provider: string; token: string; jobs?: RawJob[] }
 
-function matchMarkers(haystack: string): { provider: string; token: string } | null {
+function matchMarkers(haystack: string, url: string): { provider: string; token: string } | null {
   for (const marker of ATS_MARKERS) {
     const m = haystack.match(marker.re)
-    const token = m?.[marker.group]
+    if (!m) continue
+    const token = marker.useUrl ? url : m[marker.group]
     if (token) return { provider: marker.provider, token }
   }
   return null
@@ -47,6 +54,9 @@ async function collectPageText(res: Response): Promise<string> {
     return res.text()
   }
   const chunks: string[] = []
+  // Some boards name their vendor only inside an inlined config blob, so script
+  // bodies count too — bounded, since one of those blobs can be a megabyte.
+  let budget = 512 * 1024
   const rewriter = new HTMLRewriter()
     .on("a", {
       element(el) {
@@ -58,9 +68,19 @@ async function collectPageText(res: Response): Promise<string> {
         chunks.push(el.getAttribute("src") ?? "")
       },
     })
+    .on("link", {
+      element(el) {
+        chunks.push(el.getAttribute("href") ?? "")
+      },
+    })
     .on("script", {
       element(el) {
         chunks.push(el.getAttribute("src") ?? "")
+      },
+      text(chunk) {
+        if (budget <= 0) return
+        budget -= chunk.text.length
+        chunks.push(chunk.text)
       },
     })
     .on("div", {
@@ -114,10 +134,17 @@ async function probe(url: string): Promise<{ provider: string; token: string } |
     const parsed = new URL(url)
     const direct = detectToken(parsed)
     if (direct) return direct
-    const res = await fetchResponse(url, { headers: { Accept: "text/html" } })
+    let res = await fetchResponse(url, { headers: { Accept: "text/html" } })
+    // Fund talent networks sit behind bot management that refuses our agent
+    // outright; the board itself is public once we knock like a browser.
+    if (res.status === 403) {
+      res = await fetchResponse(url, {
+        headers: { Accept: "text/html", "User-Agent": BROWSER_LIKE_USER_AGENT },
+      })
+    }
     if (!res.ok) return null
     const text = await collectPageText(res)
-    return matchMarkers(text)
+    return matchMarkers(text, url)
   } catch {
     return null
   }

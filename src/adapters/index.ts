@@ -3,6 +3,8 @@ import { adzuna } from "./adzuna"
 import { arbeitsagentur } from "./arbeitsagentur"
 import { arbeitnow } from "./arbeitnow"
 import { ashby } from "./ashby"
+import { consider } from "./consider"
+import { getro } from "./getro"
 import { greenhouse } from "./greenhouse"
 import { himalayas } from "./himalayas"
 import { jobicy } from "./jobicy"
@@ -41,6 +43,8 @@ export const adapters: Adapter[] = [
   thehub,
   remoteok,
   remotive,
+  getro,
+  consider,
   // Must precede rss, whose detect() would claim /remote-jobs.rss first.
   weworkremotely,
   // rss matches on a generic path pattern, so it stays the last resort.

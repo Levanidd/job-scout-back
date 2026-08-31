@@ -29,6 +29,14 @@ providers reach the transport through the injected context instead. The
 retained functions are verbatim; `BROWSER_LIKE_USER_AGENT` is inlined from
 upstream `user-agent.mjs` so the file has no imports left.
 
+## Boards that cannot be recognised from a URL
+
+`getro` and `consider` run on the fund's own domain, so upstream has them
+configured by hand in `portals.yml`. We instead recognise them from the page:
+`src/detect.ts` matches the Getro CDN and the Consider board blob, and the
+adapters resolve the rest — Getro reads its collection id from the markup on
+its own, and `src/adapters/consider.ts` lifts the board id out of the page.
+
 ## Known gaps
 
 `join`, `teamtailor`, `softgarden` and `workday` list pages carry no job

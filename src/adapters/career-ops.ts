@@ -97,8 +97,12 @@ export type BridgeOptions = {
   kind: "company" | "query"
   /** Overrides their entry-based detect, which cannot see a bare URL. */
   detect?(url: URL): string | null
-  /** Builds the config entry their provider reads; defaults to a careers URL. */
-  entry?(token: string): Record<string, unknown>
+  /**
+   * Builds the config entry their provider reads; defaults to a careers URL.
+   * May be async: a board whose id is only discoverable from its own page has
+   * to fetch it before the provider can run.
+   */
+  entry?(token: string): Record<string, unknown> | Promise<Record<string, unknown>>
   /**
    * Board-wide feeds hand back everything and let the caller filter. Their
    * scanner does that downstream; for us the source's token is the needle.
@@ -117,7 +121,7 @@ export function fromCareerOps(provider: CareerOpsProvider, options: BridgeOption
       return provider.detect?.({ careers_url: url.href }) ? url.href : null
     },
     async fetchJobs(token) {
-      const entry = options.entry?.(token) ?? {
+      const entry = (await options.entry?.(token)) ?? {
         name: labelFromUrl(token),
         careers_url: token,
         api: token,
