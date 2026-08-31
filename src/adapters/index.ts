@@ -9,6 +9,8 @@ import { jobicy } from "./jobicy"
 import { lever } from "./lever"
 import { personio } from "./personio"
 import { recruitee } from "./recruitee"
+import { remoteok } from "./remoteok"
+import { remotive } from "./remotive"
 import { rss } from "./rss"
 import { smartrecruiters } from "./smartrecruiters"
 import { thehub } from "./thehub"
@@ -29,6 +31,8 @@ export const adapters: Adapter[] = [
   himalayas,
   jobicy,
   thehub,
+  remoteok,
+  remotive,
   // Must precede rss, whose detect() would claim /remote-jobs.rss first.
   weworkremotely,
   // rss matches on a generic path pattern, so it stays the last resort.
