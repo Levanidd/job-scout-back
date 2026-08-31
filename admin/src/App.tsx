@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react"
 
-import { api, forgetToken, getToken, UnauthorizedError } from "./api"
+import { api, forgetToken, getToken, UnauthorizedError, type JobFilters } from "./api"
 import { AppProvider, type ToastKind } from "./app-context"
 import { BriefcaseIcon, PersonIcon, RadarIcon, StackIcon } from "./components/icons"
 import { Discovery } from "./screens/Discovery"
@@ -8,6 +8,7 @@ import { Jobs } from "./screens/Jobs"
 import { Profile } from "./screens/Profile"
 import { Sources } from "./screens/Sources"
 import { TokenGate } from "./screens/TokenGate"
+import type { DiscoveredCompany } from "./types"
 
 type TabId = "discovery" | "jobs" | "sources" | "profile"
 
@@ -23,6 +24,9 @@ type Toast = { message: string; kind: ToastKind }
 export default function App() {
   const [authorized, setAuthorized] = useState(() => Boolean(getToken()))
   const [tab, setTab] = useState<TabId>("discovery")
+  // Opening a company from Discovery remounts the job list with its own
+  // filters; picking the tab by hand always starts from the default view.
+  const [preset, setPreset] = useState<{ filters: JobFilters; seq: number } | null>(null)
   const [toast, setToast] = useState<Toast | null>(null)
   const [running, setRunning] = useState(false)
   const timer = useRef<number | undefined>(undefined)
@@ -39,6 +43,14 @@ export default function App() {
   }, [])
 
   useEffect(() => () => window.clearTimeout(timer.current), [])
+
+  function openCompanyJobs(company: DiscoveredCompany) {
+    setPreset((prev) => ({
+      filters: { companies: [company.company_key], min_score: 0 },
+      seq: (prev?.seq ?? 0) + 1,
+    }))
+    setTab("jobs")
+  }
 
   const context = useMemo(() => ({ notify, logout }), [notify, logout])
 
@@ -85,7 +97,10 @@ export default function App() {
                 key={item.id}
                 className="tab"
                 aria-current={tab === item.id ? "page" : undefined}
-                onClick={() => setTab(item.id)}
+                onClick={() => {
+                  if (item.id === "jobs") setPreset(null)
+                  setTab(item.id)
+                }}
               >
                 <Icon />
                 {item.label}
@@ -95,8 +110,8 @@ export default function App() {
         </nav>
 
         <main className="content">
-          {tab === "discovery" ? <Discovery /> : null}
-          {tab === "jobs" ? <Jobs /> : null}
+          {tab === "discovery" ? <Discovery onOpenJobs={openCompanyJobs} /> : null}
+          {tab === "jobs" ? <Jobs key={preset?.seq ?? "all"} preset={preset?.filters} /> : null}
           {tab === "sources" ? <Sources /> : null}
           {tab === "profile" ? <Profile /> : null}
         </main>

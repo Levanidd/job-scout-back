@@ -1,4 +1,4 @@
-import { Hono } from "hono"
+import { Hono, type Context } from "hono"
 import { cors } from "hono/cors"
 
 import { adapters } from "./adapters"
@@ -152,38 +152,68 @@ app.post("/api/discovered/:key/dismiss", async (c) => {
   return c.json({ ok: true })
 })
 
-app.get("/api/jobs", async (c) => {
-  const status = c.req.query("status")
-  const minScore = Number(c.req.query("min_score") ?? 0)
-  const company = c.req.query("company")
-  const tier = c.req.query("tier")
+function jobFilters(c: Context<{ Bindings: Bindings }>, withCompanies: boolean) {
   const clauses = ["j.closed_at IS NULL"]
   const binds: (string | number)[] = []
+
+  const status = c.req.query("status")
   if (status) {
     clauses.push("j.status = ?")
     binds.push(status)
   } else {
     clauses.push("j.status != 'ignored'")
   }
+
+  const minScore = Number(c.req.query("min_score") ?? 0)
   if (minScore) {
     clauses.push("j.score >= ?")
     binds.push(minScore)
   }
-  if (company) {
-    clauses.push("j.company_key LIKE ?")
-    binds.push(`%${company.toLowerCase()}%`)
-  }
+
+  const tier = c.req.query("tier")
   if (tier) {
     clauses.push("s.tier = ?")
     binds.push(tier)
   }
-  const sql = `SELECT j.*, s.tier, s.label as source_label
+
+  const companies = (c.req.query("companies") ?? "")
+    .split(",")
+    .map((key) => key.trim())
+    .filter(Boolean)
+  if (withCompanies && companies.length > 0) {
+    clauses.push(`j.company_key IN (${companies.map(() => "?").join(", ")})`)
+    binds.push(...companies)
+  }
+
+  return { clauses: clauses.join(" AND "), binds }
+}
+
+// Descriptions run to kilobytes each and the list never shows them.
+const JOB_COLUMNS = `j.id, j.source_id, j.company, j.company_key, j.title, j.location, j.url,
+  j.posted_at, j.first_seen_at, j.last_seen_at, j.score, j.score_reason, j.flags, j.status`
+
+app.get("/api/jobs", async (c) => {
+  const { clauses, binds } = jobFilters(c, true)
+  const sql = `SELECT ${JOB_COLUMNS}, s.tier, s.label as source_label
     FROM jobs j JOIN sources s ON s.id = j.source_id
-    WHERE ${clauses.join(" AND ")}
+    WHERE ${clauses}
     ORDER BY j.score DESC NULLS LAST, j.first_seen_at DESC
-    LIMIT 200`
+    LIMIT 500`
   const rows = await c.env.DB.prepare(sql).bind(...binds).all()
   return c.json({ jobs: rows.results })
+})
+
+// The company picker ignores its own selection, otherwise unpicking a company
+// would be impossible once it dropped out of the list.
+app.get("/api/jobs/companies", async (c) => {
+  const { clauses, binds } = jobFilters(c, false)
+  const sql = `SELECT j.company_key, MIN(j.company) AS company, COUNT(*) AS jobs
+    FROM jobs j JOIN sources s ON s.id = j.source_id
+    WHERE ${clauses}
+    GROUP BY j.company_key
+    ORDER BY company COLLATE NOCASE`
+  const rows = await c.env.DB.prepare(sql).bind(...binds).all()
+  return c.json({ companies: rows.results })
 })
 
 app.patch("/api/jobs/:id", async (c) => {

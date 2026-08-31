@@ -206,7 +206,8 @@ POST   /api/sources/:id/run
 GET    /api/discovered           ?state=new — список найденных компаний
 POST   /api/discovered/:key/add  детект ATS и создание source; при неудаче state='added' без source
 POST   /api/discovered/:key/dismiss
-GET    /api/jobs                 ?status=&min_score=&company=&tier=
+GET    /api/jobs                 ?status=&min_score=&tier=&companies=key1,key2
+GET    /api/jobs/companies       уникальные компании под теми же фильтрами, с числом вакансий
 PATCH  /api/jobs/:id             {status}
 GET/PUT /api/profile
 POST   /api/run

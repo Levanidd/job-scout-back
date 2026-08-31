@@ -11,7 +11,7 @@ const STATES = [
   { id: "dismissed", label: "Скрытые" },
 ]
 
-export function Discovery() {
+export function Discovery({ onOpenJobs }: { onOpenJobs: (company: DiscoveredCompany) => void }) {
   const run = useAction()
   const { notify } = useApp()
   const [state, setState] = useState("new")
@@ -96,24 +96,29 @@ export function Discovery() {
               </a>
             ) : null}
 
-            {state === "new" ? (
-              <div className="row">
-                <button
-                  className="btn btn-primary btn-sm"
-                  disabled={busy === company.company_key}
-                  onClick={() => void track(company)}
-                >
-                  Отслеживать
-                </button>
-                <button
-                  className="btn btn-ghost btn-sm"
-                  disabled={busy === company.company_key}
-                  onClick={() => void dismiss(company)}
-                >
-                  Скрыть
-                </button>
-              </div>
-            ) : null}
+            <div className="row">
+              <button className="btn btn-sm" onClick={() => onOpenJobs(company)}>
+                Все вакансии
+              </button>
+              {state === "new" ? (
+                <>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    disabled={busy === company.company_key}
+                    onClick={() => void track(company)}
+                  >
+                    Отслеживать
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    disabled={busy === company.company_key}
+                    onClick={() => void dismiss(company)}
+                  >
+                    Скрыть
+                  </button>
+                </>
+              ) : null}
+            </div>
           </article>
         ))
       )}

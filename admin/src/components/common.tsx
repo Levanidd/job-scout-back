@@ -71,10 +71,47 @@ export function Field({ label, children }: { label: string; children: ReactNode 
   )
 }
 
-export function formatDate(value: string | null): string {
-  if (!value) return "—"
+/** D1 keeps timestamps as `YYYY-MM-DD HH:MM:SS` in UTC; feeds send real ISO. */
+function parseDate(value: string | null): Date | null {
+  if (!value) return null
   const normalised = value.includes("T") ? value : value.replace(" ", "T") + "Z"
   const date = new Date(normalised)
-  if (Number.isNaN(date.getTime())) return value
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+export function formatDate(value: string | null): string {
+  const date = parseDate(value)
+  if (!date) return value ?? "—"
   return date.toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+}
+
+function plural(count: number, forms: [string, string, string]): string {
+  const tail = count % 10
+  const teen = count % 100
+  if (tail === 1 && teen !== 11) return forms[0]
+  if (tail >= 2 && tail <= 4 && (teen < 12 || teen > 14)) return forms[1]
+  return forms[2]
+}
+
+const DAY_MS = 86_400_000
+
+/**
+ * Age of a posting in days. Freshness is what tells a live opening from one the
+ * company forgot to take down, so the number carries a colour instead of a
+ * plain date.
+ */
+export function Age({ value, warnAfter = 30 }: { value: string | null; warnAfter?: number }) {
+  const date = parseDate(value)
+  if (!date) return <span className="age-empty">—</span>
+
+  const days = Math.max(0, Math.floor((Date.now() - date.getTime()) / DAY_MS))
+  const label =
+    days === 0 ? "сегодня" : days === 1 ? "вчера" : `${days} ${plural(days, ["день", "дня", "дней"])}`
+  const tone = days >= warnAfter * 2 ? "age-stale" : days >= warnAfter ? "age-aging" : "age-fresh"
+
+  return (
+    <span className={`age ${tone}`} title={formatDate(value)}>
+      {label}
+    </span>
+  )
 }

@@ -1,5 +1,6 @@
 import type {
   BulkDetectResult,
+  CompanyFacet,
   CycleResult,
   DetectResult,
   DiscoveredCompany,
@@ -63,8 +64,18 @@ function post<T>(path: string, body?: unknown): Promise<T> {
 export type JobFilters = {
   status?: string
   min_score?: number
-  company?: string
+  companies?: string[]
   tier?: string
+}
+
+function jobQuery(filters: JobFilters): string {
+  const params = new URLSearchParams()
+  if (filters.status) params.set("status", filters.status)
+  if (filters.min_score) params.set("min_score", String(filters.min_score))
+  if (filters.companies?.length) params.set("companies", filters.companies.join(","))
+  if (filters.tier) params.set("tier", filters.tier)
+  const query = params.toString()
+  return query ? `?${query}` : ""
 }
 
 export const api = {
@@ -73,13 +84,11 @@ export const api = {
   },
 
   jobs(filters: JobFilters): Promise<{ jobs: Job[] }> {
-    const params = new URLSearchParams()
-    if (filters.status) params.set("status", filters.status)
-    if (filters.min_score) params.set("min_score", String(filters.min_score))
-    if (filters.company) params.set("company", filters.company)
-    if (filters.tier) params.set("tier", filters.tier)
-    const query = params.toString()
-    return request(`/jobs${query ? `?${query}` : ""}`)
+    return request(`/jobs${jobQuery(filters)}`)
+  },
+
+  jobCompanies(filters: JobFilters): Promise<{ companies: CompanyFacet[] }> {
+    return request(`/jobs/companies${jobQuery({ ...filters, companies: undefined })}`)
   },
 
   setJobStatus(id: string, status: JobStatus): Promise<{ ok: true }> {

@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from "react"
+import { Fragment, useCallback, useEffect, useRef, useState } from "react"
 
 import { api, type JobFilters } from "../api"
 import { useAction } from "../app-context"
-import { Empty, Flags, ScoreBadge, Skeletons, formatDate } from "../components/common"
-import type { Job, JobStatus } from "../types"
+import { MultiSelect } from "../components/MultiSelect"
+import { Age, Empty, Flags, ScoreBadge, Skeletons, formatDate } from "../components/common"
+import type { CompanyFacet, Job, JobStatus } from "../types"
 
 const STATUS_LABELS: Record<JobStatus, string> = {
   new: "новая",
@@ -16,14 +17,22 @@ const STATUS_LABELS: Record<JobStatus, string> = {
 
 const ACTIONS: Array<{ status: JobStatus; label: string }> = [
   { status: "saved", label: "Сохранить" },
-  { status: "applied", label: "Откликнулся" },
   { status: "rejected", label: "Отказ" },
+  { status: "ignored", label: "Скрыть" },
 ]
 
-export function Jobs() {
+export function Jobs({ preset }: { preset?: JobFilters }) {
   const run = useAction()
-  const [filters, setFilters] = useState<JobFilters>({ min_score: 55 })
+  const [filters, setFilters] = useState<JobFilters>(preset ?? { min_score: 55 })
   const [jobs, setJobs] = useState<Job[] | null>(null)
+  const [companies, setCompanies] = useState<CompanyFacet[]>([])
+  const [open, setOpen] = useState<string | null>(null)
+
+  // Unchecking "откликнулся" should not erase where the job stood before.
+  const previous = useRef(new Map<string, JobStatus>())
+
+  const { status, min_score: minScore, tier } = filters
+  const picked = filters.companies ?? []
 
   const load = useCallback(async () => {
     setJobs(null)
@@ -35,10 +44,26 @@ export function Jobs() {
     void load()
   }, [load])
 
-  async function setStatus(job: Job, status: JobStatus) {
-    const result = await run(() => api.setJobStatus(job.id, status))
+  useEffect(() => {
+    void (async () => {
+      const result = await run(() => api.jobCompanies({ status, min_score: minScore, tier }))
+      setCompanies(result?.companies ?? [])
+    })()
+  }, [run, status, minScore, tier])
+
+  async function setStatus(job: Job, next: JobStatus) {
+    const result = await run(() => api.setJobStatus(job.id, next))
     if (!result) return
-    setJobs((prev) => prev?.map((item) => (item.id === job.id ? { ...item, status } : item)) ?? null)
+    setJobs((prev) => prev?.map((item) => (item.id === job.id ? { ...item, status: next } : item)) ?? null)
+  }
+
+  async function toggleApplied(job: Job) {
+    if (job.status === "applied") {
+      await setStatus(job, previous.current.get(job.id) ?? "saved")
+      return
+    }
+    previous.current.set(job.id, job.status)
+    await setStatus(job, "applied")
   }
 
   return (
@@ -72,18 +97,22 @@ export function Jobs() {
           onChange={(event) => setFilters((prev) => ({ ...prev, status: event.target.value || undefined }))}
         >
           <option value="">Кроме скрытых</option>
-          {(Object.keys(STATUS_LABELS) as JobStatus[]).map((status) => (
-            <option key={status} value={status}>
-              {STATUS_LABELS[status]}
+          {(Object.keys(STATUS_LABELS) as JobStatus[]).map((item) => (
+            <option key={item} value={item}>
+              {STATUS_LABELS[item]}
             </option>
           ))}
         </select>
 
-        <input
-          className="input"
-          placeholder="Компания"
-          value={filters.company ?? ""}
-          onChange={(event) => setFilters((prev) => ({ ...prev, company: event.target.value || undefined }))}
+        <MultiSelect
+          label="Компании"
+          options={companies.map((item) => ({
+            value: item.company_key,
+            label: item.company,
+            hint: String(item.jobs),
+          }))}
+          selected={picked}
+          onChange={(values) => setFilters((prev) => ({ ...prev, companies: values.length ? values : undefined }))}
         />
       </div>
 
@@ -92,49 +121,107 @@ export function Jobs() {
       ) : jobs.length === 0 ? (
         <Empty title="Ничего не нашлось" hint="Ослабьте фильтры или запустите прогон." />
       ) : (
-        jobs.map((job) => (
-          <article key={job.id} className="card">
-            <div className="card-head">
-              <div>
-                <h3 className="card-title">{job.title}</h3>
-                <p className="card-sub">
-                  {job.company}
-                  {job.location ? ` · ${job.location}` : ""}
-                </p>
-              </div>
-              <ScoreBadge score={job.score} />
-            </div>
+        <>
+          <p className="muted">
+            {jobs.length} вакансий{picked.length > 0 ? ` · компаний в фильтре: ${picked.length}` : ""}
+          </p>
 
-            {job.score_reason ? <p className="muted">{job.score_reason}</p> : null}
-            <Flags raw={job.flags} />
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th className="col-check" title="Отметьте, если откликнулись">
+                    Подался
+                  </th>
+                  <th>Вакансия</th>
+                  <th className="col-company">Компания</th>
+                  <th className="col-score">Score</th>
+                  <th className="col-date">Опубликована</th>
+                  <th className="col-date" title="Когда последний раз видели вакансию в источнике">
+                    Обновлена
+                  </th>
+                  <th className="col-more" />
+                </tr>
+              </thead>
+              <tbody>
+                {jobs.map((job) => (
+                  <Fragment key={job.id}>
+                    <tr className={job.status === "applied" ? "is-applied" : undefined}>
+                      <td className="col-check">
+                        <input
+                          type="checkbox"
+                          className="checkbox"
+                          checked={job.status === "applied"}
+                          aria-label={`Откликнулся: ${job.title}`}
+                          onChange={() => void toggleApplied(job)}
+                        />
+                      </td>
+                      <td>
+                        <a href={job.url} target="_blank" rel="noreferrer">
+                          {job.title}
+                        </a>
+                        <div className="cell-sub">
+                          <span className="cell-company-inline">{job.company}</span>
+                          {job.location ? <span>{job.location}</span> : null}
+                        </div>
+                      </td>
+                      <td className="col-company">{job.company}</td>
+                      <td className="col-score">
+                        <ScoreBadge score={job.score} />
+                      </td>
+                      <td className="col-date">
+                        <Age value={job.posted_at ?? job.first_seen_at} />
+                        {job.posted_at ? null : <div className="cell-sub">найдена нами</div>}
+                      </td>
+                      <td className="col-date">
+                        <Age value={job.last_seen_at} warnAfter={7} />
+                      </td>
+                      <td className="col-more">
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          aria-expanded={open === job.id}
+                          onClick={() => setOpen((prev) => (prev === job.id ? null : job.id))}
+                        >
+                          {open === job.id ? "×" : "…"}
+                        </button>
+                      </td>
+                    </tr>
 
-            <div className="row-tight" style={{ flexWrap: "wrap" }}>
-              <span className="badge badge-neutral">{job.tier === "watchlist" ? "watchlist" : "discovery"}</span>
-              <span className="badge badge-neutral">{STATUS_LABELS[job.status]}</span>
-              <span className="badge badge-neutral">{formatDate(job.first_seen_at)}</span>
-            </div>
-
-            <hr className="divider" />
-
-            <div className="row">
-              <a className="btn btn-ghost btn-sm" href={job.url} target="_blank" rel="noreferrer">
-                Открыть
-              </a>
-              {ACTIONS.map((action) => (
-                <button
-                  key={action.status}
-                  className={`btn btn-sm ${job.status === action.status ? "btn-primary" : ""}`}
-                  onClick={() => void setStatus(job, action.status)}
-                >
-                  {action.label}
-                </button>
-              ))}
-              <button className="btn btn-ghost btn-sm" onClick={() => void setStatus(job, "ignored")}>
-                Скрыть
-              </button>
-            </div>
-          </article>
-        ))
+                    {open === job.id ? (
+                      <tr className="row-details">
+                        <td colSpan={7}>
+                          {job.score_reason ? <p className="muted">{job.score_reason}</p> : null}
+                          <Flags raw={job.flags} />
+                          <div className="row-tight" style={{ flexWrap: "wrap" }}>
+                            <span className="badge badge-neutral">{STATUS_LABELS[job.status]}</span>
+                            <span className="badge badge-neutral">
+                              {job.tier === "watchlist" ? "watchlist" : "discovery"}
+                            </span>
+                            <span className="badge badge-neutral">{job.source_label}</span>
+                            <span className="badge badge-neutral">
+                              найдена {formatDate(job.first_seen_at)}
+                            </span>
+                          </div>
+                          <div className="row">
+                            {ACTIONS.map((action) => (
+                              <button
+                                key={action.status}
+                                className={`btn btn-sm ${job.status === action.status ? "btn-primary" : ""}`}
+                                onClick={() => void setStatus(job, action.status)}
+                              >
+                                {action.label}
+                              </button>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </>
   )

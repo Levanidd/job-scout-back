@@ -12,12 +12,19 @@ export type Job = {
   url: string
   posted_at: string | null
   first_seen_at: string
+  last_seen_at: string
   score: number | null
   score_reason: string | null
   flags: string | null
   status: JobStatus
   tier: Tier
   source_label: string
+}
+
+export type CompanyFacet = {
+  company_key: string
+  company: string
+  jobs: number
 }
 
 export type DiscoveredCompany = {
