@@ -88,6 +88,9 @@ export default function App() {
       let fresh = 0
       let failed = 0
       setRun((prev) => prev && { ...prev, total: plan.sources.length })
+      if (plan.sources.length === 0) {
+        setRun((prev) => prev && { ...prev, phase: "scoring", current: "", currentId: null })
+      }
 
       for (const [index, source] of plan.sources.entries()) {
         setRun((prev) => prev && { ...prev, done: index, current: source.label, currentId: source.id })
@@ -117,7 +120,11 @@ export default function App() {
       const digest = await api.sendDigest()
 
       notify(
-        `Источников ${plan.sources.length}, вакансий ${found} (новых ${fresh}), оценено ${scored}, отправлено ${digest.notified}`,
+        plan.sources.length === 0
+          ? scored || digest.notified
+            ? `Источники за последние 3 часа уже пройдены. Оценено ${scored}, отправлено ${digest.notified}`
+            : "Источники за последние 3 часа уже пройдены. Повторный обход — позже или по кнопке на карточке источника."
+          : `Источников ${plan.sources.length}, вакансий ${found} (новых ${fresh}), оценено ${scored}, отправлено ${digest.notified}`,
         "ok",
       )
     } catch (error) {
@@ -140,7 +147,12 @@ export default function App() {
         <header className="header">
           <h1>JobRadar</h1>
           <div className="header-actions">
-            <button className="btn btn-primary btn-sm" disabled={running} onClick={() => void runCycle()}>
+            <button
+              className="btn btn-primary btn-sm"
+              disabled={running}
+              title="Пропускает доски, которые успешно прошли за последние 3 часа"
+              onClick={() => void runCycle()}
+            >
               {running ? "Идёт прогон…" : "Прогнать"}
             </button>
             <button className="btn btn-ghost btn-sm" onClick={() => setRefreshTick((n) => n + 1)}>

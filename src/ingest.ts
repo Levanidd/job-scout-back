@@ -17,11 +17,21 @@ type RunResult = {
   suspicious: number
 }
 
-async function loadSources(db: D1Database): Promise<SourceRow[]> {
+/** Never-run, failed, or last success older than 3 hours. Fresh successes are skipped. */
+async function loadDueSources(db: D1Database): Promise<SourceRow[]> {
   const res = await db
     .prepare(
-      `SELECT * FROM sources WHERE enabled = 1 AND deleted_at IS NULL
-       ORDER BY last_run_at ASC NULLS FIRST`,
+      `SELECT s.* FROM sources s
+       WHERE s.enabled = 1 AND s.deleted_at IS NULL
+         AND (
+           s.last_run_at IS NULL
+           OR s.last_run_at < datetime('now', '-3 hours')
+           OR COALESCE(
+             (SELECT ok FROM source_runs r WHERE r.source_id = s.id ORDER BY r.id DESC LIMIT 1),
+             0
+           ) = 0
+         )
+       ORDER BY s.last_run_at ASC NULLS FIRST`,
     )
     .all<SourceRow>()
   return res.results
@@ -312,20 +322,28 @@ export async function prefilterAndScore(
   return { scored: scores.length, remaining }
 }
 
+export type ScoredJob = {
+  id: string
+  score: number
+  score_reason: string | null
+  flags: string | null
+  status: string
+}
+
 /**
- * Scores one posting regardless of prefilter or an existing verdict.
- * A manual click means "judge this row", not "queue whatever is still new".
+ * Scores postings regardless of prefilter or an existing verdict.
+ * A manual click means "judge these rows", not "queue whatever is still new".
  */
-export async function scoreOneJob(
-  env: Bindings,
-  id: string,
-): Promise<{ score: number; score_reason: string | null; flags: string | null; status: string }> {
-  const job = await env.DB.prepare(
+export async function scoreJobsByIds(env: Bindings, ids: string[]): Promise<ScoredJob[]> {
+  const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))].slice(0, 10)
+  if (unique.length === 0) return []
+
+  const rows = await env.DB.prepare(
     `SELECT id, company, company_key, title, location, description, status, closed_at
-     FROM jobs WHERE id = ?`,
+     FROM jobs WHERE id IN (${unique.map(() => "?").join(", ")}) AND closed_at IS NULL`,
   )
-    .bind(id)
-    .first<{
+    .bind(...unique)
+    .all<{
       id: string
       company: string
       company_key: string
@@ -335,42 +353,52 @@ export async function scoreOneJob(
       status: string
       closed_at: string | null
     }>()
-  if (!job || job.closed_at) throw new Error("not found")
+  if (rows.results.length === 0) throw new Error("not found")
 
   const profileRow = await env.DB.prepare(`SELECT content FROM profile WHERE id = 1`).first<{ content: string }>()
   const scores = await scoreJobs(
-    [
-      {
-        external_id: job.id,
-        title: job.title,
-        company: job.company,
-        location: job.location ?? "",
-        description: job.description ?? "",
-      },
-    ],
+    rows.results.map((job) => ({
+      external_id: job.id,
+      title: job.title,
+      company: job.company,
+      location: job.location ?? "",
+      description: job.description ?? "",
+    })),
     profileRow?.content ?? "",
     await resolveScoringConfig(env),
   )
-  const item = scores.find((row) => row.external_id === job.id) ?? scores[0]
-  if (!item) throw new Error("Модель не вернула оценку")
+  const byId = new Map(scores.map((row) => [row.external_id, row]))
 
-  const flags = JSON.stringify(item.flags)
-  const status = job.status === "off_profile" ? "new" : job.status
-  await env.DB.prepare(`UPDATE jobs SET score = ?, score_reason = ?, flags = ?, status = ? WHERE id = ?`)
-    .bind(item.score, item.reason || null, flags, status, job.id)
-    .run()
-
-  if (job.company_key) {
-    await env.DB.prepare(
-      `UPDATE discovered_companies
-       SET best_score = CASE WHEN best_score IS NULL OR best_score < ? THEN ? ELSE best_score END
-       WHERE company_key = ?`,
-    )
-      .bind(item.score, item.score, job.company_key)
+  const out: ScoredJob[] = []
+  for (const job of rows.results) {
+    const item = byId.get(job.id)
+    if (!item) continue
+    const flags = JSON.stringify(item.flags)
+    const status = job.status === "off_profile" ? "new" : job.status
+    await env.DB.prepare(`UPDATE jobs SET score = ?, score_reason = ?, flags = ?, status = ? WHERE id = ?`)
+      .bind(item.score, item.reason || null, flags, status, job.id)
       .run()
-  }
 
-  return { score: item.score, score_reason: item.reason || null, flags, status }
+    if (job.company_key) {
+      await env.DB.prepare(
+        `UPDATE discovered_companies
+         SET best_score = CASE WHEN best_score IS NULL OR best_score < ? THEN ? ELSE best_score END
+         WHERE company_key = ?`,
+      )
+        .bind(item.score, item.score, job.company_key)
+        .run()
+    }
+
+    out.push({ id: job.id, score: item.score, score_reason: item.reason || null, flags, status })
+  }
+  if (out.length === 0) throw new Error("Модель не вернула оценку")
+  return out
+}
+
+export async function scoreOneJob(env: Bindings, id: string): Promise<ScoredJob> {
+  const [job] = await scoreJobsByIds(env, [id])
+  if (!job) throw new Error("not found")
+  return job
 }
 
 export async function notifyNew(env: Bindings): Promise<number> {
@@ -421,15 +449,12 @@ export async function notifyNew(env: Bindings): Promise<number> {
 }
 
 export async function pickSources(env: Bindings): Promise<SourceRow[]> {
-  const all = await loadSources(env.DB)
-  const watchlist = all.filter((row) => row.tier === "watchlist")
-  const discovery = all.filter((row) => row.tier === "discovery")
-  const watch = watchlist.length < 20 ? watchlist : watchlist.slice(0, 8)
-  return [...watch, ...discovery.slice(0, 6)]
+  return loadDueSources(env.DB)
 }
 
 export async function runCycle(env: Bindings): Promise<{ runs: RunResult[]; scored: number; notified: number }> {
-  const selected = await pickSources(env)
+  // Cron shares one Worker budget; the admin walks every due source itself.
+  const selected = (await pickSources(env)).slice(0, 14)
   const runs: RunResult[] = []
   for (const source of selected) {
     runs.push(await runSource(env, source))

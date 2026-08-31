@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono"
 import { cors } from "hono/cors"
 
 import { adapters } from "./adapters"
-import { addDiscovered, notifyNew, pickSources, prefilterAndScore, runCycle, runSource, scoreOneJob, trackedCompanyKeys } from "./ingest"
+import { addDiscovered, notifyNew, pickSources, prefilterAndScore, runCycle, runSource, scoreJobsByIds, scoreOneJob, trackedCompanyKeys } from "./ingest"
 import { detectUrl } from "./detect"
 import { ensureExploreSources, listExploreBoards } from "./explore"
 import { isThinkingLevel, listModels, validateModel, type ThinkingLevel } from "./scoring"
@@ -344,6 +344,19 @@ app.get("/api/jobs/companies", async (c) => {
     ORDER BY company COLLATE NOCASE`
   const rows = await c.env.DB.prepare(sql).bind(...binds).all()
   return c.json({ companies: rows.results })
+})
+
+app.post("/api/jobs/score", async (c) => {
+  const body = await c.req.json<{ ids?: string[] }>().catch(() => ({}) as { ids?: string[] })
+  const ids = Array.isArray(body.ids) ? body.ids.map(String) : []
+  if (ids.length === 0) return c.json({ error: "ids required" }, 400)
+  try {
+    return c.json({ jobs: await scoreJobsByIds(c.env, ids) })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (message === "not found") return c.json({ error: "not found" }, 404)
+    return c.json({ error: message }, 502)
+  }
 })
 
 app.patch("/api/jobs/:id", async (c) => {

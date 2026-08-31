@@ -46,6 +46,7 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
   const [companies, setCompanies] = useState<CompanyFacet[]>([])
   const [open, setOpen] = useState<string | null>(null)
   const [scoring, setScoring] = useState<string | null>(null)
+  const [batch, setBatch] = useState<{ done: number; total: number } | null>(null)
 
   // Unchecking "откликнулся" should not erase where the job stood before.
   const previous = useRef(new Map<string, JobStatus>())
@@ -83,26 +84,60 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
     setJobs((prev) => prev?.map((item) => (item.id === job.id ? { ...item, status: next } : item)) ?? null)
   }
 
+  function applyScores(
+    updates: Array<{
+      id: string
+      score: number
+      score_reason: string | null
+      flags: string | null
+      status: JobStatus
+    }>,
+  ) {
+    const byId = new Map(updates.map((item) => [item.id, item]))
+    setJobs(
+      (prev) =>
+        prev?.map((item) => {
+          const next = byId.get(item.id)
+          return next
+            ? {
+                ...item,
+                score: next.score,
+                score_reason: next.score_reason,
+                flags: next.flags,
+                status: next.status,
+              }
+            : item
+        }) ?? null,
+    )
+  }
+
   async function rescore(job: Job) {
     setScoring(job.id)
     const result = await run(() => api.scoreJob(job.id))
     setScoring(null)
     if (!result) return
     notify(`Score ${result.score}`)
-    setJobs(
-      (prev) =>
-        prev?.map((item) =>
-          item.id === job.id
-            ? {
-                ...item,
-                score: result.score,
-                score_reason: result.score_reason,
-                flags: result.flags,
-                status: result.status,
-              }
-            : item,
-        ) ?? null,
-    )
+    applyScores([result])
+  }
+
+  async function rescoreFiltered() {
+    if (!jobs?.length || batch) return
+    const ids = jobs.map((job) => job.id)
+    setBatch({ done: 0, total: ids.length })
+    let done = 0
+    try {
+      for (let i = 0; i < ids.length; i += 10) {
+        const chunk = ids.slice(i, i + 10)
+        const result = await run(() => api.scoreJobs(chunk))
+        if (!result) return
+        applyScores(result.jobs)
+        done += result.jobs.length
+        setBatch({ done, total: ids.length })
+      }
+      notify(`Пересчитан score у ${done} ${plural(done, ["вакансии", "вакансий", "вакансий"])}`)
+    } finally {
+      setBatch(null)
+    }
   }
 
   async function toggleApplied(job: Job) {
@@ -229,10 +264,21 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
         <Empty title="Ничего не нашлось" hint="Ослабьте фильтры или запустите прогон." />
       ) : (
         <>
-          <p className="muted">
-            {jobs.length} {plural(jobs.length, ["вакансия", "вакансии", "вакансий"])}
-            {picked.length > 0 ? ` · компаний в фильтре: ${picked.length}` : ""}
-          </p>
+          <div className="row">
+            <p className="muted">
+              {jobs.length} {plural(jobs.length, ["вакансия", "вакансии", "вакансий"])}
+              {picked.length > 0 ? ` · компаний в фильтре: ${picked.length}` : ""}
+              {batch ? ` · считаю ${batch.done} из ${batch.total}` : ""}
+            </p>
+            <button
+              type="button"
+              className="btn btn-sm"
+              disabled={Boolean(scoring || batch)}
+              onClick={() => void rescoreFiltered()}
+            >
+              {batch ? "Считаю…" : "Пересчитать score у всех"}
+            </button>
+          </div>
 
           <div className="table-wrap">
             <table className="table">
@@ -282,7 +328,7 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
               <tbody>
                 {jobs.map((job) => (
                   <Fragment key={job.id}>
-                    <tr className={`${job.status === "applied" ? "is-applied" : ""} ${scoring === job.id ? "is-busy" : ""}`.trim()}>
+                    <tr className={`${job.status === "applied" ? "is-applied" : ""} ${scoring === job.id || batch ? "is-busy" : ""}`.trim()}>
                       <td className="col-check">
                         <input
                           type="checkbox"
@@ -303,7 +349,7 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
                         <button
                           type="button"
                           className="btn btn-ghost btn-sm"
-                          disabled={scoring === job.id}
+                          disabled={Boolean(scoring === job.id || batch)}
                           onClick={() => void rescore(job)}
                         >
                           {scoring === job.id ? "Считаю…" : "Пересчитать score"}
@@ -361,7 +407,7 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
                           <div className="row">
                             <button
                               className="btn btn-primary btn-sm"
-                              disabled={scoring === job.id}
+                              disabled={Boolean(scoring === job.id || batch)}
                               onClick={() => void rescore(job)}
                             >
                               {scoring === job.id ? "Считаю…" : "Пересчитать score"}
