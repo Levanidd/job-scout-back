@@ -22,6 +22,30 @@ function labelFromUrl(raw: string): string {
   }
 }
 
+function parseBulkUrls(raw: string): { urls: string[]; leftover: string[] } {
+  const urls: string[] = []
+  const leftover: string[] = []
+  const seen = new Set<string>()
+  for (const line of raw.split(/\n+/)) {
+    const pieces = line
+      .split(/,\s+(?=https?:\/\/|\S+\.\S+)/i)
+      .map((part) => part.replace(/^[•\-*\d.)\s]+/, "").trim())
+      .filter(Boolean)
+    for (const piece of pieces) {
+      const href = /^https?:\/\//i.test(piece) ? piece : `https://${piece}`
+      try {
+        const url = new URL(href).href
+        if (seen.has(url)) continue
+        seen.add(url)
+        urls.push(url)
+      } catch {
+        leftover.push(piece)
+      }
+    }
+  }
+  return { urls, leftover }
+}
+
 function prettify(slug: string): string {
   return slug
     .split(/[-_.]/)
@@ -112,6 +136,7 @@ export function Sources() {
   const [pending, setPending] = useState<Pending | null>(null)
   const [bulk, setBulk] = useState("")
   const [bulkBusy, setBulkBusy] = useState(false)
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number; current: string } | null>(null)
   const [editing, setEditing] = useState<number | null>(null)
   const [draft, setDraft] = useState("")
   const [query, setQuery] = useState("")
@@ -198,34 +223,46 @@ export function Sources() {
   }
 
   async function runBulk() {
-    const urls = bulk
-      .split(/\s*[\n,]\s*/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-    if (urls.length === 0) return
+    const parsed = parseBulkUrls(bulk)
+    if (parsed.urls.length === 0 && parsed.leftover.length === 0) return
     setBulkBusy(true)
-    const result = await run(() => api.bulkDetect(urls))
-    setBulkBusy(false)
-    if (!result) return
-
-    const found = result.results.filter((item) => item.ats && item.token)
-    for (const item of found) {
-      await run(() =>
-        api.createSource({
-          kind: "company",
-          tier: "watchlist",
-          label: labelFor(item.url, item.token),
-          provider: item.ats as string,
-          token: item.token as string,
-          careers_url: item.url,
-        }),
+    const failed = [...parsed.leftover]
+    let added = 0
+    try {
+      for (const [index, href] of parsed.urls.entries()) {
+        setBulkProgress({ done: index, total: parsed.urls.length, current: href })
+        const detected = await run(() => api.detect(href))
+        if (!detected?.ats || !detected.token) {
+          failed.push(href)
+          continue
+        }
+        const created = await run(() =>
+          api.createSource({
+            kind: "company",
+            tier: "watchlist",
+            label: labelFor(href, detected.token),
+            provider: detected.ats as string,
+            token: detected.token as string,
+            careers_url: href,
+          }),
+        )
+        if (created) added += 1
+        else failed.push(href)
+      }
+      setBulk(failed.join("\n"))
+      notify(
+        failed.length === 0
+          ? `Добавлено ${added}`
+          : `Добавлено ${added} из ${parsed.urls.length}. Неопределённые ссылки остались в поле`,
+        failed.length === 0 ? "ok" : "error",
       )
+      setSort("added")
+      setDir("desc")
+      await load(true)
+    } finally {
+      setBulkBusy(false)
+      setBulkProgress(null)
     }
-    notify(`Определилось ${found.length} из ${result.results.length}, добавлены в watchlist`, "ok")
-    setBulk("")
-    setSort("added")
-    setDir("desc")
-    await load(true)
   }
 
   async function toggle(source: Source) {
@@ -348,14 +385,21 @@ export function Sources() {
 
       <section className="card">
         <h3 className="card-title">Пачкой</h3>
-        <p className="card-sub">По ссылке на строку. Всё, что определится, уедет в watchlist.</p>
+        <p className="card-sub">По ссылке на строку. Каждая проверяется отдельно — если ATS не нашёлся, ссылка останется в поле.</p>
         <textarea
           className="textarea"
           style={{ minHeight: 120 }}
           placeholder={"https://jobs.lever.co/company\nhttps://company.recruitee.com"}
           value={bulk}
           onChange={(event) => setBulk(event.target.value)}
+          disabled={bulkBusy}
         />
+        {bulkProgress ? (
+          <p className="muted">
+            {bulkProgress.done + 1} из {bulkProgress.total}
+            {bulkProgress.current ? ` · ${bulkProgress.current}` : ""}
+          </p>
+        ) : null}
         <div className="row">
           <button className="btn btn-primary btn-sm" disabled={bulkBusy || !bulk.trim()} onClick={() => void runBulk()}>
             {bulkBusy ? "Проверяю…" : "Проверить и добавить"}

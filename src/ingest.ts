@@ -47,7 +47,26 @@ export async function runSource(env: Bindings, source: SourceRow): Promise<RunRe
       const id = await jobHash(source.provider, source.token, job.externalId)
       const company = job.company ?? source.label
       const key = companyKey(company)
+      const opening = dedupKey(company, job.title) || null
       const existing = await env.DB.prepare(`SELECT id FROM jobs WHERE id = ?`).bind(id).first<{ id: string }>()
+
+      // Same role already stored from another board or another geo posting.
+      if (opening && !existing) {
+        const twin = await env.DB.prepare(
+          `SELECT j.id, s.kind FROM jobs j JOIN sources s ON s.id = j.source_id
+           WHERE j.dedup_key = ? AND j.closed_at IS NULL LIMIT 1`,
+        )
+          .bind(opening)
+          .first<{ id: string; kind: string }>()
+        if (twin) {
+          if (source.kind === "company" && twin.kind === "query") {
+            await env.DB.prepare(`DELETE FROM jobs WHERE id = ?`).bind(twin.id).run()
+          } else {
+            continue
+          }
+        }
+      }
+
       if (!existing) jobsNew += 1
       const description = clipDescription(job.description) ?? null
       await env.DB.prepare(
@@ -72,7 +91,7 @@ export async function runSource(env: Bindings, source: SourceRow): Promise<RunRe
           job.url,
           description,
           job.postedAt ?? null,
-          dedupKey(company, job.title) || null,
+          opening,
         )
         .run()
 

@@ -10,23 +10,6 @@ import type { ExploreBoard, ExploreCompany } from "../types"
 
 const STORAGE_KEY = "jobradar.explore.providers"
 
-const ATS_LABELS: Record<string, string> = {
-  arbeitsagentur: "Arbeitsagentur",
-  arbeitnow: "Arbeitnow",
-  adzuna: "Adzuna",
-  himalayas: "Himalayas",
-  jobicy: "Jobicy",
-  thehub: "TheHub",
-  remoteok: "Remote OK",
-  remotive: "Remotive",
-  workingnomads: "Working Nomads",
-  landingjobs: "Landing.jobs",
-  wttj: "Welcome to the Jungle",
-  weworkremotely: "We Work Remotely",
-  getro: "Getro",
-  consider: "Consider",
-}
-
 type SortKey = "company" | "jobs" | "score"
 
 const DEFAULT_DIR: Record<SortKey, "asc" | "desc"> = {
@@ -35,8 +18,8 @@ const DEFAULT_DIR: Record<SortKey, "asc" | "desc"> = {
   score: "desc",
 }
 
-function atsLabel(provider: string): string {
-  return ATS_LABELS[provider] ?? provider
+function boardLabel(boards: ExploreBoard[] | null, provider: string): string {
+  return boards?.find((item) => item.provider === provider)?.label ?? provider
 }
 
 function readStored(): string[] {
@@ -87,20 +70,11 @@ export function Explore({ onOpenJobs }: { onOpenJobs: (company: { company_key: s
     () =>
       (boards ?? []).map((board) => ({
         value: board.provider,
-        label: atsLabel(board.provider),
-        hint: String(board.jobs),
+        label: board.label,
+        hint: board.ready ? String(board.jobs) : "нужен URL доски",
       })),
     [boards],
   )
-
-  const runnable = useMemo(() => {
-    if (!boards) return []
-    const picked = new Set(selected)
-    return boards
-      .filter((board) => picked.has(board.provider))
-      .flatMap((board) => board.sources)
-      .filter((source) => source.enabled)
-  }, [boards, selected])
 
   async function loadCompanies(providers: string[]) {
     const result = await run(() => api.explore(providers))
@@ -109,24 +83,38 @@ export function Explore({ onOpenJobs }: { onOpenJobs: (company: { company_key: s
 
   async function launch() {
     if (selected.length === 0 || launching || cycleRunning) return
+    const ready = selected.filter((provider) => boards?.find((board) => board.provider === provider)?.ready)
+    const skipped = selected.length - ready.length
+    if (ready.length === 0) {
+      notify("Getro и Consider нужно сначала добавить ссылкой на доску в Источники", "error")
+      return
+    }
+    if (skipped) {
+      notify("Getro/Consider без URL пропущены — добавьте доску в Источники", "error")
+    }
+
     setLaunching(true)
     setCompanies(null)
     try {
-      if (refreshBoards && runnable.length > 0) {
+      const prepared = await api.explorePrepare(ready)
+      const empty = ready.some((provider) => (boards?.find((board) => board.provider === provider)?.jobs ?? 0) === 0)
+      const toRun = refreshBoards || prepared.created > 0 || empty ? prepared.sources : []
+
+      if (toRun.length > 0) {
         let found = 0
         let fresh = 0
         let failed = 0
         setScan({
           phase: "sources",
           done: 0,
-          total: runnable.length,
+          total: toRun.length,
           current: "",
           currentId: null,
           found: 0,
           fresh: 0,
           failed: 0,
         })
-        for (const [index, source] of runnable.entries()) {
+        for (const [index, source] of toRun.entries()) {
           setScan((prev) => prev && { ...prev, done: index, current: source.label, currentId: source.id })
           try {
             const result = await api.runSource(source.id, { score: false })
@@ -141,7 +129,7 @@ export function Explore({ onOpenJobs }: { onOpenJobs: (company: { company_key: s
           setScan((prev) => prev && { ...prev, done: index + 1, found, fresh, failed })
         }
       }
-      await loadCompanies(selected)
+      await loadCompanies(ready)
       await loadBoards()
       refresh()
     } catch (error) {
@@ -210,8 +198,9 @@ export function Explore({ onOpenJobs }: { onOpenJobs: (company: { company_key: s
   return (
     <>
       <p className="muted">
-        Дашборды вроде Himalayas и Getro уже содержат вакансии компаний, которых нет в источниках. Выберите ATS,
-        нажмите «Запустить» — в списке останутся только те, кого ещё можно добавить отдельно.
+        Выберите площадки и нажмите «Запустить». Himalayas, Remote OK и остальные подключатся сами. Getro и Consider —
+        доски фондов: их нужно добавить ссылкой в Источники. В обычном списке вакансий по умолчанию спрятаны роли вне
+        профиля — полный набор у компании открывается кнопкой «Вакансии».
       </p>
 
       <div className="filters">
@@ -238,15 +227,10 @@ export function Explore({ onOpenJobs }: { onOpenJobs: (company: { company_key: s
 
       {boards === null ? (
         <Skeletons />
-      ) : boards.length === 0 ? (
-        <Empty
-          title="Нет дашбордов"
-          hint="Query-источники (Himalayas, Getro, Arbeitsagentur…) появятся здесь, когда их добавят на вкладке Источники."
-        />
       ) : companies === undefined ? (
         <Empty
           title="Выберите ATS и запустите"
-          hint="Можно отметить несколько площадок сразу. Компании, которые уже есть в источниках, в список не попадут."
+          hint="Himalayas, Arbeitnow, Remote OK и остальные уже в списке. Getro и Consider появятся как рабочие, когда добавите URL доски в Источники."
         />
       ) : companies === null ? (
         scan ? null : <Skeletons />
@@ -256,7 +240,7 @@ export function Explore({ onOpenJobs }: { onOpenJobs: (company: { company_key: s
           hint={
             refreshBoards
               ? "Либо доски пустые, либо все найденные компании уже в источниках."
-              : "Отметьте «Сначала обновить доски», если вакансии на этих ATS ещё не собраны."
+              : "Доски без вакансий прогоняются при запуске сами. Если список пустой — отметьте «Сначала обновить доски»."
           }
         />
       ) : (
@@ -306,7 +290,7 @@ export function Explore({ onOpenJobs }: { onOpenJobs: (company: { company_key: s
                       <div className="row-tight" style={{ flexWrap: "wrap" }}>
                         {company.providers.split(",").map((provider) => (
                           <span key={provider} className="badge badge-neutral">
-                            {atsLabel(provider.trim())}
+                            {boardLabel(boards, provider.trim())}
                           </span>
                         ))}
                       </div>

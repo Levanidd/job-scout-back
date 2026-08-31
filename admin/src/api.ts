@@ -135,6 +135,13 @@ export const api = {
     return request("/explore/boards")
   },
 
+  explorePrepare(providers: string[]): Promise<{
+    sources: { id: number; label: string; provider: string }[]
+    created: number
+  }> {
+    return post("/explore/prepare", { providers })
+  },
+
   explore(providers: string[]): Promise<{ companies: ExploreCompany[] }> {
     const query = encodeURIComponent(providers.join(","))
     return request(`/explore?providers=${query}`)

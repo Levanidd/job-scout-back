@@ -4,6 +4,7 @@ import { cors } from "hono/cors"
 import { adapters } from "./adapters"
 import { addDiscovered, notifyNew, pickSources, prefilterAndScore, runCycle, runSource, scoreOneJob, trackedCompanyKeys } from "./ingest"
 import { detectUrl } from "./detect"
+import { ensureExploreSources, listExploreBoards } from "./explore"
 import { isThinkingLevel, listModels, validateModel, type ThinkingLevel } from "./scoring"
 import { SETTING_MODEL, SETTING_THINKING, settingsView, writeSetting } from "./settings"
 import type { Bindings, SourceRow } from "./types"
@@ -62,10 +63,7 @@ app.post("/api/sources", async (c) => {
        created_at = datetime('now')`,
   )
     .bind(
-      // The adapter knows whether its token is a company board or a search
-      // query; the admin never sends this, and a query feed filed as a company
-      // never feeds Discovery.
-      body.kind ?? adapters.find((item) => item.provider === body.provider)?.kind ?? "company",
+      adapters.find((item) => item.provider === body.provider)?.kind ?? body.kind ?? "company",
       body.tier ?? "watchlist",
       body.label,
       body.provider,
@@ -168,25 +166,12 @@ app.post("/api/discovered/:key/dismiss", async (c) => {
 })
 
 app.get("/api/explore/boards", async (c) => {
-  const rows = await c.env.DB.prepare(
-    `SELECT s.provider, s.id, s.label, s.enabled,
-       (SELECT COUNT(*) FROM jobs j WHERE j.source_id = s.id AND j.closed_at IS NULL) AS jobs
-     FROM sources s
-     WHERE s.deleted_at IS NULL AND s.kind = 'query'
-     ORDER BY s.provider, s.label`,
-  ).all<{ provider: string; id: number; label: string; enabled: number; jobs: number }>()
+  return c.json({ boards: await listExploreBoards(c.env.DB) })
+})
 
-  const boards = new Map<
-    string,
-    { provider: string; jobs: number; sources: { id: number; label: string; enabled: number; jobs: number }[] }
-  >()
-  for (const row of rows.results) {
-    const board = boards.get(row.provider) ?? { provider: row.provider, jobs: 0, sources: [] }
-    board.jobs += row.jobs
-    board.sources.push({ id: row.id, label: row.label, enabled: row.enabled, jobs: row.jobs })
-    boards.set(row.provider, board)
-  }
-  return c.json({ boards: [...boards.values()] })
+app.post("/api/explore/prepare", async (c) => {
+  const body = await c.req.json<{ providers?: string[] }>().catch(() => ({}) as { providers?: string[] })
+  return c.json(await ensureExploreSources(c.env, body.providers ?? []))
 })
 
 app.get("/api/explore", async (c) => {

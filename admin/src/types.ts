@@ -37,7 +37,9 @@ export type CompanyFacet = {
 
 export type ExploreBoard = {
   provider: string
+  label: string
   jobs: number
+  ready: boolean
   sources: { id: number; label: string; enabled: number; jobs: number }[]
 }
 
