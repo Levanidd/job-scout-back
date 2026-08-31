@@ -9,6 +9,7 @@ import { greenhouse } from "./greenhouse"
 import { himalayas } from "./himalayas"
 import { jobicy } from "./jobicy"
 import { join } from "./join"
+import { landingjobs } from "./landingjobs"
 import { lever } from "./lever"
 import { personio } from "./personio"
 import { recruitee } from "./recruitee"
@@ -22,6 +23,8 @@ import { thehub } from "./thehub"
 import { weworkremotely } from "./weworkremotely"
 import { workable } from "./workable"
 import { workday } from "./workday"
+import { workingnomads } from "./workingnomads"
+import { wttj } from "./wttj"
 
 export const adapters: Adapter[] = [
   greenhouse,
@@ -43,6 +46,9 @@ export const adapters: Adapter[] = [
   thehub,
   remoteok,
   remotive,
+  workingnomads,
+  landingjobs,
+  wttj,
   getro,
   consider,
   // Must precede rss, whose detect() would claim /remote-jobs.rss first.

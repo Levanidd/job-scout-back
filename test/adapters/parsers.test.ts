@@ -17,6 +17,7 @@ import { parseWeWorkRemotely } from "../../src/adapters/weworkremotely"
 import { parseWorkable } from "../../src/adapters/workable"
 import { parseAdzuna } from "../../src/adapters/adzuna"
 import { detectToken } from "../../src/adapters"
+import { labelFromUrl } from "../../src/adapters/career-ops"
 import { toIso } from "../../src/http"
 
 function load(name: string) {
@@ -226,6 +227,16 @@ describe("adapter parsers", () => {
     expect(jobs[0]?.location).toBe("Europe")
     expect(jobs[1]?.company).toBeUndefined()
     expect(jobs[1]?.title).toBe("Standalone Product Role")
+  })
+
+  it("names a single-company board from its URL", () => {
+    // These boards are one company, so the payload never repeats its name and
+    // the vendored providers read it off the config entry instead.
+    expect(labelFromUrl("https://join.com/companies/acme/jobs")).toBe("acme")
+    expect(labelFromUrl("https://acme.teamtailor.com")).toBe("acme")
+    expect(labelFromUrl("https://careers.acme.softgarden.io/de/widgets/jobs")).toBe("acme")
+    expect(labelFromUrl("https://www.acme.com/jobs")).toBe("acme")
+    expect(labelFromUrl("not a url")).toBe("not a url")
   })
 
   it("detects ATS tokens from URLs", () => {
