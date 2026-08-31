@@ -18,6 +18,7 @@ import { parseWorkable } from "../../src/adapters/workable"
 import { parseAdzuna } from "../../src/adapters/adzuna"
 import { detectToken } from "../../src/adapters"
 import { labelFromUrl } from "../../src/adapters/career-ops"
+import { dedupKey } from "../../src/company-key"
 import { toIso } from "../../src/http"
 
 function load(name: string) {
@@ -227,6 +228,15 @@ describe("adapter parsers", () => {
     expect(jobs[0]?.location).toBe("Europe")
     expect(jobs[1]?.company).toBeUndefined()
     expect(jobs[1]?.title).toBe("Standalone Product Role")
+  })
+
+  it("matches one opening across the boards that carry it", () => {
+    const direct = dedupKey("Parloa GmbH", "Senior Product Manager (m/w/d)")
+    expect(dedupKey("Parloa", "Senior  Product   Manager")).toBe(direct)
+    expect(dedupKey("parloa", "Senior Product Manager (f/m/x)")).toBe(direct)
+    // Seniority is a real difference, not a spelling of the same role.
+    expect(dedupKey("Parloa", "Junior Product Manager")).not.toBe(direct)
+    expect(dedupKey("", "Product Manager")).toBe("")
   })
 
   it("names a single-company board from its URL", () => {

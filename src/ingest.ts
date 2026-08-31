@@ -1,5 +1,5 @@
 import { getAdapter } from "./adapters"
-import { companyKey, jobHash } from "./company-key"
+import { companyKey, dedupKey, jobHash } from "./company-key"
 import { detectUrl } from "./detect"
 import { renderDigest, sendTelegram } from "./notify"
 import { clipDescription, passesPrefilter } from "./prefilter"
@@ -51,12 +51,13 @@ export async function runSource(env: Bindings, source: SourceRow): Promise<RunRe
       if (!existing) jobsNew += 1
       const description = clipDescription(job.description) ?? null
       await env.DB.prepare(
-        `INSERT INTO jobs (id, source_id, external_id, company, company_key, title, location, url, description, posted_at, first_seen_at, last_seen_at, closed_at, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), NULL, 'new')
+        `INSERT INTO jobs (id, source_id, external_id, company, company_key, title, location, url, description, posted_at, dedup_key, first_seen_at, last_seen_at, closed_at, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), NULL, 'new')
          ON CONFLICT(id) DO UPDATE SET
            last_seen_at = datetime('now'),
            title = excluded.title,
            location = excluded.location,
+           dedup_key = excluded.dedup_key,
            closed_at = NULL,
            description = COALESCE(excluded.description, jobs.description)`,
       )
@@ -71,6 +72,7 @@ export async function runSource(env: Bindings, source: SourceRow): Promise<RunRe
           job.url,
           description,
           job.postedAt ?? null,
+          dedupKey(company, job.title) || null,
         )
         .run()
 
@@ -159,13 +161,33 @@ export async function prefilterAndScore(env: Bindings): Promise<number> {
     description: string | null
     score: number | null
     status: string
+    dedup_key: string | null
   }>()
 
   const profileRow = await env.DB.prepare(`SELECT content FROM profile WHERE id = 1`).first<{ content: string }>()
   const profile = profileRow?.content ?? ""
 
+  // A role we already judged on one board is the same role on the next one, so
+  // its verdict carries over instead of being bought again.
+  const judged = await env.DB.prepare(
+    `SELECT dedup_key, MAX(score) AS score, score_reason, flags FROM jobs
+     WHERE dedup_key IS NOT NULL AND score IS NOT NULL
+     GROUP BY dedup_key`,
+  ).all<{ dedup_key: string; score: number; score_reason: string | null; flags: string | null }>()
+  const verdicts = new Map(judged.results.map((row) => [row.dedup_key, row]))
+
   const toScore: ScoreInput[] = []
-  const ids: string[] = []
+  /** Twins of a job that is being scored right now, waiting for its verdict. */
+  const awaiting = new Map<string, string[]>()
+
+  const applyVerdict = async (
+    id: string,
+    verdict: { score: number; score_reason: string | null; flags: string | null },
+  ) => {
+    await env.DB.prepare(`UPDATE jobs SET score = ?, score_reason = ?, flags = ? WHERE id = ?`)
+      .bind(verdict.score, verdict.score_reason, verdict.flags, id)
+      .run()
+  }
 
   for (const job of open.results) {
     if (job.status === "ignored" || job.status === "rejected") continue
@@ -178,6 +200,22 @@ export async function prefilterAndScore(env: Bindings): Promise<number> {
       continue
     }
     if (job.score != null) continue
+
+    const key = job.dedup_key
+    if (key) {
+      const known = verdicts.get(key)
+      if (known) {
+        await applyVerdict(job.id, known)
+        continue
+      }
+      const queued = awaiting.get(key)
+      if (queued) {
+        queued.push(job.id)
+        continue
+      }
+      awaiting.set(key, [])
+    }
+
     toScore.push({
       external_id: job.id,
       title: job.title,
@@ -185,25 +223,28 @@ export async function prefilterAndScore(env: Bindings): Promise<number> {
       location: job.location ?? "",
       description: job.description ?? "",
     })
-    ids.push(job.id)
   }
 
   const scores = await scoreInBatches(toScore, profile, await resolveScoringConfig(env))
   for (const item of scores) {
-    await env.DB.prepare(
-      `UPDATE jobs SET score = ?, score_reason = ?, flags = ? WHERE id = ?`,
-    )
-      .bind(item.score, item.reason, JSON.stringify(item.flags), item.external_id)
-      .run()
+    const verdict = {
+      score: item.score,
+      score_reason: item.reason,
+      flags: JSON.stringify(item.flags),
+    }
+    await applyVerdict(item.external_id, verdict)
+    const scored = open.results.find((row) => row.id === item.external_id)
+    for (const twin of (scored?.dedup_key && awaiting.get(scored.dedup_key)) || []) {
+      await applyVerdict(twin, verdict)
+    }
 
-    const job = open.results.find((row) => row.id === item.external_id)
-    if (job) {
+    if (scored) {
       await env.DB.prepare(
         `UPDATE discovered_companies
          SET best_score = CASE WHEN best_score IS NULL OR best_score < ? THEN ? ELSE best_score END
          WHERE company_key = ?`,
       )
-        .bind(item.score, item.score, job.company_key)
+        .bind(item.score, item.score, scored.company_key)
         .run()
     }
   }
@@ -227,15 +268,20 @@ export async function prefilterAndScore(env: Bindings): Promise<number> {
 }
 
 export async function notifyNew(env: Bindings): Promise<number> {
+  // One line per opening, not per board that carries it. Grouping on the
+  // dedup key keeps the copy from the employer's own board, whose link goes
+  // straight to the posting rather than through an aggregator.
   const rows = await env.DB.prepare(
-    `SELECT j.company, j.title, j.url, j.score, j.score_reason as reason, j.flags, j.id, s.tier
+    `SELECT j.company, j.title, j.url, MAX(j.score) AS score, j.score_reason as reason, j.flags, j.id,
+            s.tier, j.dedup_key
      FROM jobs j JOIN sources s ON s.id = j.source_id
      WHERE j.notified_at IS NULL AND j.closed_at IS NULL AND j.status = 'new' AND j.score IS NOT NULL
        AND (
          (s.tier = 'watchlist' AND j.score >= 55) OR
          (s.tier = 'discovery' AND j.score >= 70)
        )
-     ORDER BY j.score DESC
+     GROUP BY COALESCE(j.dedup_key, j.id)
+     ORDER BY score DESC
      LIMIT 25`,
   ).all<{
     company: string
@@ -245,6 +291,7 @@ export async function notifyNew(env: Bindings): Promise<number> {
     reason: string | null
     flags: string | null
     id: string
+    dedup_key: string | null
   }>()
 
   const discovered = await env.DB.prepare(
@@ -255,10 +302,13 @@ export async function notifyNew(env: Bindings): Promise<number> {
   const text = renderDigest(rows.results, discovered?.n ?? 0)
   await sendTelegram(env, text)
   for (const job of rows.results) {
+    // The twins left out of the digest have to be marked too, or each of them
+    // becomes tomorrow's unsent notification for a job already delivered.
     await env.DB.prepare(
-      `UPDATE jobs SET notified_at = datetime('now'), status = 'notified' WHERE id = ?`,
+      `UPDATE jobs SET notified_at = datetime('now'), status = 'notified'
+       WHERE id = ? OR (? IS NOT NULL AND dedup_key = ? AND notified_at IS NULL)`,
     )
-      .bind(job.id)
+      .bind(job.id, job.dedup_key, job.dedup_key)
       .run()
   }
   return rows.results.length
