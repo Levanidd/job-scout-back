@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType }
 import { api, forgetToken, getToken, UnauthorizedError, type JobFilters } from "./api"
 import { AppProvider, type ToastKind } from "./app-context"
 import { BriefcaseIcon, PersonIcon, RadarIcon, StackIcon } from "./components/icons"
+import { RunProgress, type RunState } from "./components/RunProgress"
 import { Discovery } from "./screens/Discovery"
 import { Jobs } from "./screens/Jobs"
 import { Profile } from "./screens/Profile"
@@ -21,6 +22,9 @@ const TABS: Array<{ id: TabId; label: string; icon: ComponentType<{ className?: 
 
 type Toast = { message: string; kind: ToastKind }
 
+/** Jobs per scoring request: three Gemini batches, small enough to feel live. */
+const SCORE_CHUNK = 30
+
 export default function App() {
   const [authorized, setAuthorized] = useState(() => Boolean(getToken()))
   const [tab, setTab] = useState<TabId>("discovery")
@@ -29,6 +33,7 @@ export default function App() {
   const [preset, setPreset] = useState<{ filters: JobFilters; seq: number } | null>(null)
   const [toast, setToast] = useState<Toast | null>(null)
   const [running, setRunning] = useState(false)
+  const [run, setRun] = useState<RunState | null>(null)
   const timer = useRef<number | undefined>(undefined)
 
   const notify = useCallback((message: string, kind: ToastKind = "ok") => {
@@ -54,12 +59,49 @@ export default function App() {
 
   const context = useMemo(() => ({ notify, logout }), [notify, logout])
 
+  /**
+   * The cycle is driven from here, one source at a time, so the page can say
+   * where it is. Each step is its own request, which also keeps a long run from
+   * spending a single worker's subrequest budget on everything at once.
+   */
   async function runCycle() {
     setRunning(true)
+    setRun({ phase: "sources", done: 0, total: 0, current: "", found: 0, fresh: 0, failed: 0 })
     try {
-      const result = await api.runCycle()
+      const plan = await api.runPlan()
+      let found = 0
+      let fresh = 0
+      let failed = 0
+      setRun((prev) => prev && { ...prev, total: plan.sources.length })
+
+      for (const [index, source] of plan.sources.entries()) {
+        setRun((prev) => prev && { ...prev, done: index, current: source.label })
+        try {
+          const result = await api.runSource(source.id, { score: false })
+          found += result.run.jobs_found
+          fresh += result.run.jobs_new
+          if (!result.run.ok) failed += 1
+        } catch (error) {
+          if (error instanceof UnauthorizedError) throw error
+          failed += 1
+        }
+        setRun((prev) => prev && { ...prev, done: index + 1, found, fresh, failed })
+      }
+
+      let scored = 0
+      setRun((prev) => prev && { ...prev, phase: "scoring", done: 0, total: 0, current: "" })
+      for (;;) {
+        const step = await api.score(SCORE_CHUNK)
+        scored += step.scored
+        setRun((prev) => prev && { ...prev, done: scored, total: scored + step.remaining })
+        if (step.remaining === 0 || step.scored === 0) break
+      }
+
+      setRun((prev) => prev && { ...prev, phase: "digest", done: 0, total: 0, current: "" })
+      const digest = await api.sendDigest()
+
       notify(
-        `Источников: ${result.runs.length}, оценено ${result.scored}, отправлено ${result.notified}`,
+        `Источников ${plan.sources.length}, вакансий ${found} (новых ${fresh}), оценено ${scored}, отправлено ${digest.notified}`,
         "ok",
       )
     } catch (error) {
@@ -67,6 +109,7 @@ export default function App() {
       else notify(error instanceof Error ? error.message : String(error), "error")
     } finally {
       setRunning(false)
+      setRun(null)
     }
   }
 
@@ -110,6 +153,7 @@ export default function App() {
         </nav>
 
         <main className="content">
+          {run ? <RunProgress state={run} /> : null}
           {tab === "discovery" ? <Discovery onOpenJobs={openCompanyJobs} /> : null}
           {tab === "jobs" ? <Jobs key={preset?.seq ?? "all"} preset={preset?.filters} /> : null}
           {tab === "sources" ? <Sources /> : null}

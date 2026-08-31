@@ -100,6 +100,13 @@ export type RunResult = {
   suspicious: number
 }
 
+export type PlannedSource = {
+  id: number
+  label: string
+  provider: string
+  tier: Tier
+}
+
 export type CycleResult = {
   runs: RunResult[]
   scored: number

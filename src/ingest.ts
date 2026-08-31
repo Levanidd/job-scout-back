@@ -147,7 +147,15 @@ async function watchedKeys(db: D1Database): Promise<Set<string>> {
   return new Set(rows.results.map((row) => companyKey(row.label)))
 }
 
-export async function prefilterAndScore(env: Bindings): Promise<number> {
+/**
+ * Scores what the prefilter lets through. `limit` caps how many jobs reach the
+ * model in one pass, so a caller that wants to report progress can walk the
+ * queue in steps instead of waiting out one opaque request.
+ */
+export async function prefilterAndScore(
+  env: Bindings,
+  limit?: number,
+): Promise<{ scored: number; remaining: number }> {
   const open = await env.DB.prepare(
     `SELECT * FROM jobs WHERE closed_at IS NULL AND (score IS NULL OR status = 'new')`,
   ).all<{
@@ -227,7 +235,10 @@ export async function prefilterAndScore(env: Bindings): Promise<number> {
     })
   }
 
-  const scores = await scoreInBatches(toScore, profile, await resolveScoringConfig(env))
+  const batch = limit ? toScore.slice(0, limit) : toScore
+  const remaining = toScore.length - batch.length
+
+  const scores = await scoreInBatches(batch, profile, await resolveScoringConfig(env))
   for (const item of scores) {
     const verdict = {
       score: item.score,
@@ -266,7 +277,7 @@ export async function prefilterAndScore(env: Bindings): Promise<number> {
     await env.DB.prepare(`UPDATE sources SET bootstrapped = 1 WHERE id = ?`).bind(source.id).run()
   }
 
-  return scores.length
+  return { scored: scores.length, remaining }
 }
 
 export async function notifyNew(env: Bindings): Promise<number> {
@@ -330,7 +341,7 @@ export async function runCycle(env: Bindings): Promise<{ runs: RunResult[]; scor
   for (const source of selected) {
     runs.push(await runSource(env, source))
   }
-  const scored = await prefilterAndScore(env)
+  const { scored } = await prefilterAndScore(env)
   const notified = await notifyNew(env)
   return { runs, scored, notified }
 }

@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono"
 import { cors } from "hono/cors"
 
 import { adapters } from "./adapters"
-import { addDiscovered, prefilterAndScore, runCycle, runSource } from "./ingest"
+import { addDiscovered, notifyNew, pickSources, prefilterAndScore, runCycle, runSource } from "./ingest"
 import { detectUrl } from "./detect"
 import { isThinkingLevel, listModels, validateModel, type ThinkingLevel } from "./scoring"
 import { SETTING_MODEL, SETTING_THINKING, settingsView, writeSetting } from "./settings"
@@ -87,12 +87,15 @@ app.delete("/api/sources/:id", async (c) => {
   return c.json({ ok: true })
 })
 
+// `?score=0` leaves the queue alone: a full cycle scores once at the end
+// instead of after every source, and the admin can report progress meanwhile.
 app.post("/api/sources/:id/run", async (c) => {
   const id = Number(c.req.param("id"))
   const source = await c.env.DB.prepare(`SELECT * FROM sources WHERE id = ?`).bind(id).first<SourceRow>()
   if (!source) return c.json({ error: "not found" }, 404)
   const run = await runSource(c.env, source)
-  const scored = await prefilterAndScore(c.env)
+  if (c.req.query("score") === "0") return c.json({ run, scored: 0 })
+  const { scored } = await prefilterAndScore(c.env)
   return c.json({ run, scored })
 })
 
@@ -251,7 +254,7 @@ app.post("/api/profile/rescore", async (c) => {
     `UPDATE jobs SET score = NULL, score_reason = NULL, flags = NULL
      WHERE closed_at IS NULL AND status NOT IN ('ignored', 'rejected', 'off_profile')`,
   ).run()
-  const scored = await prefilterAndScore(c.env)
+  const { scored } = await prefilterAndScore(c.env)
   return c.json({ ok: true, scored })
 })
 
@@ -295,6 +298,29 @@ app.post("/api/run", async (c) => {
   const result = await runCycle(c.env)
   return c.json(result)
 })
+
+// The three steps of a cycle, exposed separately so the admin can drive them
+// one at a time and show where the run currently is. Splitting also gives each
+// step its own subrequest budget, which one long request would have to share.
+app.get("/api/run/plan", async (c) => {
+  const sources = await pickSources(c.env)
+  return c.json({
+    sources: sources.map((source) => ({
+      id: source.id,
+      label: source.label,
+      provider: source.provider,
+      tier: source.tier,
+    })),
+  })
+})
+
+app.post("/api/score", async (c) => {
+  const body = await c.req.json<{ limit?: number }>().catch(() => ({}) as { limit?: number })
+  const limit = Number(body.limit) > 0 ? Number(body.limit) : undefined
+  return c.json(await prefilterAndScore(c.env, limit))
+})
+
+app.post("/api/notify", async (c) => c.json({ notified: await notifyNew(c.env) }))
 
 app.get("/api/runs", async (c) => {
   const rows = await c.env.DB.prepare(

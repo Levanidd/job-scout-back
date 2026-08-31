@@ -1,12 +1,12 @@
 import type {
   BulkDetectResult,
   CompanyFacet,
-  CycleResult,
   DetectResult,
   DiscoveredCompany,
   Job,
   JobStatus,
   ModelOption,
+  PlannedSource,
   RunResult,
   Settings,
   Source,
@@ -133,8 +133,20 @@ export const api = {
     return request(`/sources/${id}`, { method: "DELETE" })
   },
 
-  runSource(id: number): Promise<{ run: RunResult; scored: number }> {
-    return post(`/sources/${id}/run`)
+  runSource(id: number, options: { score?: boolean } = {}): Promise<{ run: RunResult; scored: number }> {
+    return post(`/sources/${id}/run${options.score === false ? "?score=0" : ""}`)
+  },
+
+  runPlan(): Promise<{ sources: PlannedSource[] }> {
+    return request("/run/plan")
+  },
+
+  score(limit?: number): Promise<{ scored: number; remaining: number }> {
+    return post("/score", limit ? { limit } : undefined)
+  },
+
+  sendDigest(): Promise<{ notified: number }> {
+    return post("/notify")
   },
 
   detect(url: string): Promise<DetectResult> {
@@ -155,10 +167,6 @@ export const api = {
 
   rescore(): Promise<{ ok: true; scored: number }> {
     return post("/profile/rescore")
-  },
-
-  runCycle(): Promise<CycleResult> {
-    return post("/run")
   },
 
   settings(): Promise<Settings> {

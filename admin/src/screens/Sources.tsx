@@ -7,6 +7,8 @@ import type { DetectResult, Source, Tier } from "../types"
 
 const ATS_SUBDOMAINS = new Set(["jobs", "boards", "job-boards", "apply", "careers"])
 
+const SLUG = /^[a-z0-9][a-z0-9._-]*$/i
+
 function labelFromUrl(raw: string): string {
   try {
     const url = new URL(raw.startsWith("http") ? raw : `https://${raw}`)
@@ -17,6 +19,24 @@ function labelFromUrl(raw: string): string {
   } catch {
     return raw
   }
+}
+
+function prettify(slug: string): string {
+  return slug
+    .split(/[-_.]/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ")
+}
+
+/**
+ * On a shared board the host names the ATS and the path names the employer, so
+ * a label taken from the domain reads "Ashbyhq" for every company on Ashby. The
+ * detected token is that employer's own slug; only fall back to the domain when
+ * the token is not one (Workday hands back a whole URL).
+ */
+function labelFor(raw: string, token: string | null): string {
+  return token && SLUG.test(token) ? prettify(token) : labelFromUrl(raw)
 }
 
 type Pending = DetectResult & { url: string; label: string; tier: Tier }
@@ -30,6 +50,8 @@ export function Sources() {
   const [pending, setPending] = useState<Pending | null>(null)
   const [bulk, setBulk] = useState("")
   const [bulkBusy, setBulkBusy] = useState(false)
+  const [editing, setEditing] = useState<number | null>(null)
+  const [draft, setDraft] = useState("")
 
   const load = useCallback(async () => {
     const result = await run(() => api.sources())
@@ -51,7 +73,7 @@ export function Sources() {
       notify("ATS не определился. Компанию покроют query-источники.", "error")
       return
     }
-    setPending({ ...result, url: url.trim(), label: labelFromUrl(url), tier: "watchlist" })
+    setPending({ ...result, url: url.trim(), label: labelFor(url, result.token), tier: "watchlist" })
   }
 
   async function confirmAdd() {
@@ -91,7 +113,7 @@ export function Sources() {
         api.createSource({
           kind: "company",
           tier: "watchlist",
-          label: labelFromUrl(item.url),
+          label: labelFor(item.url, item.token),
           provider: item.ats as string,
           token: item.token as string,
           careers_url: item.url,
@@ -108,6 +130,15 @@ export function Sources() {
     const result = await run(() => api.updateSource(source.id, { enabled }))
     if (!result) return
     setSources((prev) => prev?.map((item) => (item.id === source.id ? { ...item, enabled } : item)) ?? null)
+  }
+
+  async function rename(source: Source) {
+    const label = draft.trim()
+    setEditing(null)
+    if (!label || label === source.label) return
+    const result = await run(() => api.updateSource(source.id, { label }))
+    if (!result) return
+    setSources((prev) => prev?.map((item) => (item.id === source.id ? { ...item, label } : item)) ?? null)
   }
 
   async function changeTier(source: Source, tier: Tier) {
@@ -231,12 +262,39 @@ export function Sources() {
         sources.map((source) => (
           <article key={source.id} className="card">
             <div className="card-head">
-              <div>
-                <h3 className="card-title">{source.label}</h3>
+              <div className="grow">
+                {editing === source.id ? (
+                  <div className="row-tight">
+                    <input
+                      className="input"
+                      value={draft}
+                      autoFocus
+                      onChange={(event) => setDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") void rename(source)
+                        if (event.key === "Escape") setEditing(null)
+                      }}
+                    />
+                    <button className="btn btn-primary btn-sm" onClick={() => void rename(source)}>
+                      ОК
+                    </button>
+                  </div>
+                ) : (
+                  <h3 className="card-title">{source.label}</h3>
+                )}
                 <p className="card-sub">
                   {source.provider} · {source.kind === "query" ? "запрос" : "компания"} · активных{" "}
                   {source.active_jobs}
                 </p>
+                {/* Two companies on the same ATS get the same provider line, so the
+                    board address is what actually tells the cards apart. */}
+                {source.careers_url ? (
+                  <a className="mono" href={source.careers_url} target="_blank" rel="noreferrer">
+                    {source.careers_url}
+                  </a>
+                ) : (
+                  <span className="mono">{source.token}</span>
+                )}
               </div>
               {source.last_ok === null ? (
                 <span className="badge badge-neutral">не запускался</span>
@@ -265,6 +323,15 @@ export function Sources() {
               </button>
               <button className="btn btn-sm" onClick={() => void runOne(source)}>
                 Прогнать
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  setEditing(source.id)
+                  setDraft(source.label)
+                }}
+              >
+                Переименовать
               </button>
               <button className="btn btn-danger btn-sm" onClick={() => void remove(source)}>
                 Удалить

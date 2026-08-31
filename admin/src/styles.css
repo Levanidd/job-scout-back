@@ -577,6 +577,37 @@ a:hover {
   outline-offset: 2px;
 }
 
+/* ---------- progress ---------- */
+
+.progress-track {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(135deg, #935cff 0%, #6d28d9 100%);
+  transition: width 0.3s ease;
+}
+
+/* Steps without a known length still need to look alive. */
+.progress-track.is-indeterminate .progress-fill {
+  width: 35%;
+  animation: sweep 1.3s ease-in-out infinite;
+}
+
+@keyframes sweep {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+
 /* ---------- multiselect ---------- */
 
 .multiselect {
@@ -765,6 +796,10 @@ a:hover {
   font-size: 12px;
   color: var(--text-secondary);
   word-break: break-all;
+}
+
+a.mono:hover {
+  color: var(--accent);
 }
 
 .divider {
