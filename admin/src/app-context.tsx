@@ -7,6 +7,12 @@ export type ToastKind = "ok" | "error"
 type AppContextValue = {
   notify: (message: string, kind?: ToastKind) => void
   logout: () => void
+  /** Bump to silently refetch whatever tab is open. */
+  refreshTick: number
+  refresh: () => void
+  /** Bump after each source in a cycle so the Sources list can catch up live. */
+  sourcesTick: number
+  runningSourceId: number | null
 }
 
 const AppContext = createContext<AppContextValue | null>(null)

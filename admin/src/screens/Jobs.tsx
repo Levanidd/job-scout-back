@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react"
 
-import { api, type JobFilters } from "../api"
-import { useAction } from "../app-context"
+import { api, type JobFilters, type JobSort } from "../api"
+import { useAction, useApp } from "../app-context"
 import { MultiSelect } from "../components/MultiSelect"
 import { Age, Empty, Flags, ScoreBadge, Skeletons, formatDate, plural } from "../components/common"
 import type { CompanyFacet, Job, JobStatus } from "../types"
@@ -22,9 +22,55 @@ const ACTIONS: Array<{ status: JobStatus; label: string }> = [
   { status: "ignored", label: "Скрыть" },
 ]
 
+const DEFAULT_DIR: Record<JobSort, "asc" | "desc"> = {
+  applied: "desc",
+  title: "asc",
+  company: "asc",
+  score: "desc",
+  posted: "desc",
+  updated: "desc",
+  added: "desc",
+}
+
+function SortHeader({
+  column,
+  label,
+  sort,
+  dir,
+  onSort,
+  className,
+  title,
+}: {
+  column: JobSort
+  label: string
+  sort: JobSort
+  dir: "asc" | "desc"
+  onSort: (column: JobSort) => void
+  className?: string
+  title?: string
+}) {
+  const active = sort === column
+  return (
+    <th className={className} title={title} aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}>
+      <button type="button" className={`th-sort ${active ? "is-active" : ""}`} onClick={() => onSort(column)}>
+        {label}
+        <span className="th-arrow" aria-hidden>
+          {active ? (dir === "asc" ? "↑" : "↓") : "↕"}
+        </span>
+      </button>
+    </th>
+  )
+}
+
 export function Jobs({ preset }: { preset?: JobFilters }) {
   const run = useAction()
-  const [filters, setFilters] = useState<JobFilters>(preset ?? { min_score: 55 })
+  const { refreshTick, refresh } = useApp()
+  const [filters, setFilters] = useState<JobFilters>({
+    min_score: 55,
+    sort: "score",
+    dir: "desc",
+    ...preset,
+  })
   const [jobs, setJobs] = useState<Job[] | null>(null)
   const [companies, setCompanies] = useState<CompanyFacet[]>([])
   const [open, setOpen] = useState<string | null>(null)
@@ -32,13 +78,13 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
   // Unchecking "откликнулся" should not erase where the job stood before.
   const previous = useRef(new Map<string, JobStatus>())
 
-  const { status, min_score: minScore, tier } = filters
+  const { status, min_score: minScore, tier, added_days: addedDays, added_from: addedFrom } = filters
   const picked = filters.companies ?? []
 
-  const load = useCallback(async () => {
-    setJobs(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setJobs(null)
     const result = await run(() => api.jobs(filters))
-    setJobs(result?.jobs ?? [])
+    if (result) setJobs(result.jobs)
   }, [run, filters])
 
   useEffect(() => {
@@ -46,11 +92,18 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
   }, [load])
 
   useEffect(() => {
+    if (!refreshTick) return
+    void load(true)
+  }, [refreshTick, load])
+
+  useEffect(() => {
     void (async () => {
-      const result = await run(() => api.jobCompanies({ status, min_score: minScore, tier }))
-      setCompanies(result?.companies ?? [])
+      const result = await run(() =>
+        api.jobCompanies({ status, min_score: minScore, tier, added_days: addedDays, added_from: addedFrom }),
+      )
+      if (result) setCompanies(result.companies)
     })()
-  }, [run, status, minScore, tier])
+  }, [run, status, minScore, tier, addedDays, addedFrom, refreshTick])
 
   async function setStatus(job: Job, next: JobStatus) {
     const result = await run(() => api.setJobStatus(job.id, next))
@@ -66,6 +119,16 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
     previous.current.set(job.id, job.status)
     await setStatus(job, "applied")
   }
+
+  function sortBy(column: JobSort) {
+    setFilters((prev) => {
+      const dir = prev.sort === column ? (prev.dir === "asc" ? "desc" : "asc") : DEFAULT_DIR[column]
+      return { ...prev, sort: column, dir }
+    })
+  }
+
+  const sort = filters.sort ?? "score"
+  const dir = filters.dir ?? "desc"
 
   return (
     <>
@@ -116,6 +179,41 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
           ))}
         </select>
 
+        <select
+          className="select"
+          value={filters.added_from ? "from" : String(filters.added_days ?? "")}
+          onChange={(event) => {
+            const value = event.target.value
+            if (value === "from") return
+            setFilters((prev) => ({
+              ...prev,
+              added_days: value ? Number(value) : undefined,
+              added_from: undefined,
+            }))
+          }}
+        >
+          <option value="">Добавлена когда угодно</option>
+          <option value="1">сегодня</option>
+          <option value="3">за 3 дня</option>
+          <option value="7">за неделю</option>
+          <option value="30">за месяц</option>
+          {filters.added_from ? <option value="from">с {filters.added_from}</option> : null}
+        </select>
+
+        <input
+          className="input"
+          type="date"
+          title="Добавлена не раньше этой даты"
+          value={filters.added_from ?? ""}
+          onChange={(event) =>
+            setFilters((prev) => ({
+              ...prev,
+              added_from: event.target.value || undefined,
+              added_days: undefined,
+            }))
+          }
+        />
+
         <MultiSelect
           label="Компании"
           options={companies.map((item) => ({
@@ -126,6 +224,9 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
           selected={picked}
           onChange={(values) => setFilters((prev) => ({ ...prev, companies: values.length ? values : undefined }))}
         />
+        <button className="btn btn-ghost btn-sm" onClick={() => refresh()}>
+          Обновить
+        </button>
       </div>
 
       {jobs === null ? (
@@ -143,16 +244,44 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
             <table className="table">
               <thead>
                 <tr>
-                  <th className="col-check" title="Отметьте, если откликнулись">
-                    Подался
-                  </th>
-                  <th>Вакансия</th>
-                  <th className="col-company">Компания</th>
-                  <th className="col-score">Score</th>
-                  <th className="col-date">Опубликована</th>
-                  <th className="col-date" title="Когда последний раз видели вакансию в источнике">
-                    Обновлена
-                  </th>
+                  <SortHeader
+                    column="applied"
+                    label="Подался"
+                    sort={sort}
+                    dir={dir}
+                    onSort={sortBy}
+                    className="col-check"
+                    title="Отметьте, если откликнулись"
+                  />
+                  <SortHeader column="title" label="Вакансия" sort={sort} dir={dir} onSort={sortBy} />
+                  <SortHeader column="company" label="Компания" sort={sort} dir={dir} onSort={sortBy} className="col-company" />
+                  <SortHeader column="score" label="Score" sort={sort} dir={dir} onSort={sortBy} className="col-score" />
+                  <SortHeader
+                    column="posted"
+                    label="Опубликована"
+                    sort={sort}
+                    dir={dir}
+                    onSort={sortBy}
+                    className="col-date"
+                  />
+                  <SortHeader
+                    column="added"
+                    label="Добавлена"
+                    sort={sort}
+                    dir={dir}
+                    onSort={sortBy}
+                    className="col-date"
+                    title="Когда мы впервые увидели вакансию"
+                  />
+                  <SortHeader
+                    column="updated"
+                    label="Обновлена"
+                    sort={sort}
+                    dir={dir}
+                    onSort={sortBy}
+                    className="col-date"
+                    title="Когда последний раз видели вакансию в источнике"
+                  />
                   <th className="col-more" />
                 </tr>
               </thead>
@@ -190,6 +319,9 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
                         {job.posted_at ? null : <div className="cell-sub">найдена нами</div>}
                       </td>
                       <td className="col-date">
+                        <Age value={job.first_seen_at} warnAfter={14} />
+                      </td>
+                      <td className="col-date">
                         <Age value={job.last_seen_at} warnAfter={7} />
                       </td>
                       <td className="col-more">
@@ -205,7 +337,7 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
 
                     {open === job.id ? (
                       <tr className="row-details">
-                        <td colSpan={7}>
+                        <td colSpan={8}>
                           {job.score_reason ? (
                             <p className="muted">
                               {job.score_reason === "prefilter"

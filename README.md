@@ -73,7 +73,7 @@ npm run admin:dev   # Vite на 5173 с проксированием /api на 4
 | GET | `/api/discovered?state=new` | новые компании |
 | POST | `/api/discovered/:key/add` | в watchlist |
 | POST | `/api/discovered/:key/dismiss` | скрыть |
-| GET | `/api/jobs` | `?status=&min_score=&tier=&companies=key1,key2`; `status=any` — включая отсеянные |
+| GET | `/api/jobs` | `?status=&min_score=&tier=&companies=&added_days=&added_from=&sort=&dir=`; `status=any` — включая отсеянные |
 | GET | `/api/jobs/companies` | компании с их числом вакансий под те же фильтры |
 | PATCH | `/api/jobs/:id` | `{status}` |
 | GET/PUT | `/api/profile` | текст для скоринга |

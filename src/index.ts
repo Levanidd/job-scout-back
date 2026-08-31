@@ -28,10 +28,15 @@ app.get("/api/health", (c) =>
 
 app.get("/api/sources", async (c) => {
   const rows = await c.env.DB.prepare(
-    `SELECT s.*,
+    `SELECT s.id, s.kind, s.tier, s.label, s.provider, s.token, s.careers_url, s.enabled,
+       s.last_count, s.bootstrapped, s.deleted_at, s.created_at,
+       COALESCE(s.last_run_at, (SELECT MAX(j.last_seen_at) FROM jobs j WHERE j.source_id = s.id)) AS last_run_at,
        (SELECT COUNT(*) FROM jobs j WHERE j.source_id = s.id AND j.closed_at IS NULL) AS active_jobs,
        (SELECT error FROM source_runs r WHERE r.source_id = s.id ORDER BY r.id DESC LIMIT 1) AS last_error,
-       (SELECT ok FROM source_runs r WHERE r.source_id = s.id ORDER BY r.id DESC LIMIT 1) AS last_ok
+       COALESCE(
+         (SELECT ok FROM source_runs r WHERE r.source_id = s.id ORDER BY r.id DESC LIMIT 1),
+         CASE WHEN EXISTS (SELECT 1 FROM jobs j WHERE j.source_id = s.id) THEN 1 END
+       ) AS last_ok
      FROM sources s WHERE s.deleted_at IS NULL ORDER BY s.tier, s.label`,
   ).all()
   return c.json({ sources: rows.results })
@@ -196,7 +201,35 @@ function jobFilters(c: Context<{ Bindings: Bindings }>, withCompanies: boolean) 
     binds.push(...companies)
   }
 
+  const addedDays = Number(c.req.query("added_days") ?? 0)
+  if (addedDays > 0) {
+    clauses.push(`j.first_seen_at >= datetime('now', ?)`)
+    binds.push(`-${addedDays} days`)
+  }
+
+  const addedFrom = (c.req.query("added_from") ?? "").trim()
+  if (/^\d{4}-\d{2}-\d{2}$/.test(addedFrom)) {
+    clauses.push(`j.first_seen_at >= ?`)
+    binds.push(`${addedFrom} 00:00:00`)
+  }
+
   return { clauses: clauses.join(" AND "), binds }
+}
+
+const JOB_ORDER: Record<string, string> = {
+  applied: `(j.status = 'applied')`,
+  title: "j.title COLLATE NOCASE",
+  company: "j.company COLLATE NOCASE",
+  score: "j.score",
+  posted: "COALESCE(j.posted_at, j.first_seen_at)",
+  updated: "j.last_seen_at",
+  added: "j.first_seen_at",
+}
+
+function jobOrder(c: Context<{ Bindings: Bindings }>): string {
+  const expr = JOB_ORDER[c.req.query("sort") ?? ""] ?? JOB_ORDER.score
+  const dir = c.req.query("dir") === "asc" ? "ASC" : "DESC"
+  return `${expr} ${dir} NULLS LAST, j.first_seen_at DESC`
 }
 
 // Descriptions run to kilobytes each and the list never shows them.
@@ -208,7 +241,7 @@ app.get("/api/jobs", async (c) => {
   const sql = `SELECT ${JOB_COLUMNS}, s.tier, s.label as source_label
     FROM jobs j JOIN sources s ON s.id = j.source_id
     WHERE ${clauses}
-    ORDER BY j.score DESC NULLS LAST, j.first_seen_at DESC
+    ORDER BY ${jobOrder(c)}
     LIMIT 500`
   const rows = await c.env.DB.prepare(sql).bind(...binds).all()
   return c.json({ jobs: rows.results })

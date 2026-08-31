@@ -186,11 +186,9 @@ a:hover {
   gap: 10px;
 }
 
-.card-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+.card.is-busy {
+  border-color: rgba(147, 92, 255, 0.4);
+  box-shadow: 0 0 0 1px rgba(147, 92, 255, 0.2);
 }
 
 .card-title {
@@ -415,6 +413,36 @@ a:hover {
   text-transform: uppercase;
   color: var(--text-tertiary);
   border-bottom: 1px solid var(--border-default);
+}
+
+.th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.th-sort:hover,
+.th-sort.is-active {
+  color: var(--text-primary);
+}
+
+.th-arrow {
+  font-size: 11px;
+  opacity: 0.45;
+}
+
+.th-sort.is-active .th-arrow {
+  opacity: 1;
+  color: var(--accent);
 }
 
 .table td {

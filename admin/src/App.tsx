@@ -34,6 +34,8 @@ export default function App() {
   const [toast, setToast] = useState<Toast | null>(null)
   const [running, setRunning] = useState(false)
   const [run, setRun] = useState<RunState | null>(null)
+  const [refreshTick, setRefreshTick] = useState(0)
+  const [sourcesTick, setSourcesTick] = useState(0)
   const timer = useRef<number | undefined>(undefined)
 
   const notify = useCallback((message: string, kind: ToastKind = "ok") => {
@@ -57,7 +59,17 @@ export default function App() {
     setTab("jobs")
   }
 
-  const context = useMemo(() => ({ notify, logout }), [notify, logout])
+  const context = useMemo(
+    () => ({
+      notify,
+      logout,
+      refreshTick,
+      refresh: () => setRefreshTick((n) => n + 1),
+      sourcesTick,
+      runningSourceId: run?.currentId ?? null,
+    }),
+    [notify, logout, refreshTick, sourcesTick, run?.currentId],
+  )
 
   /**
    * The cycle is driven from here, one source at a time, so the page can say
@@ -66,7 +78,7 @@ export default function App() {
    */
   async function runCycle() {
     setRunning(true)
-    setRun({ phase: "sources", done: 0, total: 0, current: "", found: 0, fresh: 0, failed: 0 })
+    setRun({ phase: "sources", done: 0, total: 0, current: "", currentId: null, found: 0, fresh: 0, failed: 0 })
     try {
       const plan = await api.runPlan()
       let found = 0
@@ -75,7 +87,7 @@ export default function App() {
       setRun((prev) => prev && { ...prev, total: plan.sources.length })
 
       for (const [index, source] of plan.sources.entries()) {
-        setRun((prev) => prev && { ...prev, done: index, current: source.label })
+        setRun((prev) => prev && { ...prev, done: index, current: source.label, currentId: source.id })
         try {
           const result = await api.runSource(source.id, { score: false })
           found += result.run.jobs_found
@@ -85,11 +97,12 @@ export default function App() {
           if (error instanceof UnauthorizedError) throw error
           failed += 1
         }
+        setSourcesTick((n) => n + 1)
         setRun((prev) => prev && { ...prev, done: index + 1, found, fresh, failed })
       }
 
       let scored = 0
-      setRun((prev) => prev && { ...prev, phase: "scoring", done: 0, total: 0, current: "" })
+      setRun((prev) => prev && { ...prev, phase: "scoring", done: 0, total: 0, current: "", currentId: null })
       for (;;) {
         const step = await api.score(SCORE_CHUNK)
         scored += step.scored
@@ -97,7 +110,7 @@ export default function App() {
         if (step.remaining === 0 || step.scored === 0) break
       }
 
-      setRun((prev) => prev && { ...prev, phase: "digest", done: 0, total: 0, current: "" })
+      setRun((prev) => prev && { ...prev, phase: "digest", done: 0, total: 0, current: "", currentId: null })
       const digest = await api.sendDigest()
 
       notify(
@@ -110,6 +123,7 @@ export default function App() {
     } finally {
       setRunning(false)
       setRun(null)
+      setRefreshTick((n) => n + 1)
     }
   }
 
@@ -125,6 +139,9 @@ export default function App() {
           <div className="header-actions">
             <button className="btn btn-primary btn-sm" disabled={running} onClick={() => void runCycle()}>
               {running ? "Идёт прогон…" : "Прогнать"}
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setRefreshTick((n) => n + 1)}>
+              Обновить
             </button>
             <button className="btn btn-ghost btn-sm" onClick={logout}>
               Выйти

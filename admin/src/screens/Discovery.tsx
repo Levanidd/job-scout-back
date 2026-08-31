@@ -13,20 +13,25 @@ const STATES = [
 
 export function Discovery({ onOpenJobs }: { onOpenJobs: (company: DiscoveredCompany) => void }) {
   const run = useAction()
-  const { notify } = useApp()
+  const { notify, refreshTick, refresh } = useApp()
   const [state, setState] = useState("new")
   const [companies, setCompanies] = useState<DiscoveredCompany[] | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setCompanies(null)
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setCompanies(null)
     const result = await run(() => api.discovered(state))
-    setCompanies(result?.companies ?? [])
+    if (result) setCompanies(result.companies)
   }, [run, state])
 
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (!refreshTick) return
+    void load(true)
+  }, [refreshTick, load])
 
   async function track(company: DiscoveredCompany) {
     setBusy(company.company_key)
@@ -62,6 +67,9 @@ export function Discovery({ onOpenJobs }: { onOpenJobs: (company: DiscoveredComp
             {item.label}
           </button>
         ))}
+        <button className="btn btn-ghost btn-sm" onClick={() => refresh()}>
+          Обновить
+        </button>
       </div>
 
       {state === "new" ? (

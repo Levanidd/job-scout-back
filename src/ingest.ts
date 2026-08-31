@@ -122,6 +122,7 @@ export async function runSource(env: Bindings, source: SourceRow): Promise<RunRe
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    await env.DB.prepare(`UPDATE sources SET last_run_at = datetime('now') WHERE id = ?`).bind(source.id).run()
     await env.DB.prepare(
       `INSERT INTO source_runs (source_id, ok, jobs_found, jobs_new, error, duration_ms, suspicious)
        VALUES (?, 0, NULL, NULL, ?, ?, 0)`,

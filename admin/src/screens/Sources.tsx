@@ -43,7 +43,7 @@ type Pending = DetectResult & { url: string; label: string; tier: Tier }
 
 export function Sources() {
   const run = useAction()
-  const { notify } = useApp()
+  const { notify, refreshTick, sourcesTick, runningSourceId } = useApp()
   const [sources, setSources] = useState<Source[] | null>(null)
   const [url, setUrl] = useState("")
   const [detecting, setDetecting] = useState(false)
@@ -53,14 +53,20 @@ export function Sources() {
   const [editing, setEditing] = useState<number | null>(null)
   const [draft, setDraft] = useState("")
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setSources(null)
     const result = await run(() => api.sources())
-    setSources(result?.sources ?? [])
+    if (result) setSources(result.sources)
   }, [run])
 
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (refreshTick === 0 && sourcesTick === 0) return
+    void load(true)
+  }, [refreshTick, sourcesTick, load])
 
   async function detect() {
     if (!url.trim()) return
@@ -252,7 +258,14 @@ export function Sources() {
         </div>
       </section>
 
-      <h2 className="section-title">Источники</h2>
+      <div className="row" style={{ justifyContent: "space-between" }}>
+        <h2 className="section-title" style={{ margin: 0 }}>
+          Источники
+        </h2>
+        <button className="btn btn-ghost btn-sm" onClick={() => void load(true)}>
+          Обновить
+        </button>
+      </div>
 
       {sources === null ? (
         <Skeletons />
@@ -260,7 +273,7 @@ export function Sources() {
         <Empty title="Источников нет" hint="Похоже, миграции ещё не накатились." />
       ) : (
         sources.map((source) => (
-          <article key={source.id} className="card">
+          <article key={source.id} className={`card ${runningSourceId === source.id ? "is-busy" : ""}`}>
             <div className="card-head">
               <div className="grow">
                 {editing === source.id ? (
@@ -296,9 +309,9 @@ export function Sources() {
                   <span className="mono">{source.token}</span>
                 )}
               </div>
-              {source.last_ok === null ? (
+              {source.last_ok == null ? (
                 <span className="badge badge-neutral">не запускался</span>
-              ) : source.last_ok ? (
+              ) : Number(source.last_ok) ? (
                 <span className="badge badge-positive">ок</span>
               ) : (
                 <span className="badge badge-negative">ошибка</span>

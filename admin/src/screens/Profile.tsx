@@ -7,7 +7,7 @@ import { ModelPicker } from "./ModelPicker"
 
 export function Profile() {
   const run = useAction()
-  const { notify } = useApp()
+  const { notify, refreshTick, refresh } = useApp()
   const [content, setContent] = useState<string | null>(null)
   const [saved, setSaved] = useState("")
   const [busy, setBusy] = useState(false)
@@ -21,6 +21,11 @@ export function Profile() {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (!refreshTick) return
+    void load()
+  }, [refreshTick, load])
 
   async function save() {
     if (content === null) return
@@ -54,6 +59,9 @@ export function Profile() {
           <div className="row">
             <button className="btn btn-primary btn-sm" disabled={busy || content === saved} onClick={() => void save()}>
               Сохранить
+            </button>
+            <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => refresh()}>
+              Обновить
             </button>
             <button className="btn btn-sm" disabled={busy} onClick={() => void rescore()}>
               Пересчитать

@@ -5,6 +5,7 @@ export type RunState = {
   done: number
   total: number
   current: string
+  currentId: number | null
   found: number
   fresh: number
   failed: number

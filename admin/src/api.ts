@@ -61,11 +61,17 @@ function post<T>(path: string, body?: unknown): Promise<T> {
   return request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined })
 }
 
+export type JobSort = "applied" | "title" | "company" | "score" | "posted" | "updated" | "added"
+
 export type JobFilters = {
   status?: string
   min_score?: number
   companies?: string[]
   tier?: string
+  added_days?: number
+  added_from?: string
+  sort?: JobSort
+  dir?: "asc" | "desc"
 }
 
 function jobQuery(filters: JobFilters): string {
@@ -74,6 +80,10 @@ function jobQuery(filters: JobFilters): string {
   if (filters.min_score) params.set("min_score", String(filters.min_score))
   if (filters.companies?.length) params.set("companies", filters.companies.join(","))
   if (filters.tier) params.set("tier", filters.tier)
+  if (filters.added_days) params.set("added_days", String(filters.added_days))
+  if (filters.added_from) params.set("added_from", filters.added_from)
+  if (filters.sort) params.set("sort", filters.sort)
+  if (filters.dir) params.set("dir", filters.dir)
   const query = params.toString()
   return query ? `?${query}` : ""
 }
@@ -88,7 +98,7 @@ export const api = {
   },
 
   jobCompanies(filters: JobFilters): Promise<{ companies: CompanyFacet[] }> {
-    return request(`/jobs/companies${jobQuery({ ...filters, companies: undefined })}`)
+    return request(`/jobs/companies${jobQuery({ ...filters, companies: undefined, sort: undefined, dir: undefined })}`)
   },
 
   setJobStatus(id: string, status: JobStatus): Promise<{ ok: true }> {
