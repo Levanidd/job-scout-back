@@ -190,10 +190,12 @@ export async function prefilterAndScore(env: Bindings): Promise<number> {
   }
 
   for (const job of open.results) {
-    if (job.status === "ignored" || job.status === "rejected") continue
+    if (job.status === "ignored" || job.status === "rejected" || job.status === "off_profile") continue
     if (!passesPrefilter(job.title)) {
+      // Kept out of the scoring queue but not out of sight: the title says the
+      // role is not ours, and the description is dropped because nothing reads it.
       await env.DB.prepare(
-        `UPDATE jobs SET score = 0, score_reason = 'prefilter', flags = '[]', status = 'ignored', description = NULL WHERE id = ?`,
+        `UPDATE jobs SET score = 0, score_reason = 'prefilter', flags = '[]', status = 'off_profile', description = NULL WHERE id = ?`,
       )
         .bind(job.id)
         .run()

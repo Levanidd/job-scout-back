@@ -61,7 +61,7 @@ CREATE TABLE jobs (
   score_reason  TEXT,
   flags         TEXT,                 -- JSON-массив
   notified_at   TEXT,
-  status        TEXT NOT NULL DEFAULT 'new'  -- new|notified|saved|applied|rejected|ignored
+  status        TEXT NOT NULL DEFAULT 'new'  -- new|notified|saved|applied|rejected|ignored|off_profile
 );
 CREATE INDEX idx_jobs_status  ON jobs(status, score DESC);
 CREATE INDEX idx_jobs_company ON jobs(company_key);
@@ -182,7 +182,7 @@ Guard из третьей строки обязателен: без него о�
 
 **Холодный старт.** Если `source.bootstrapped = 0`, все вакансии этого источника после скоринга получают `status='ignored'` без уведомления, затем `bootstrapped = 1`. Иначе первый прогон Arbeitsagentur пришлёт тебе несколько тысяч сообщений. Глобальный предохранитель: не больше 25 вакансий в одном дайджесте.
 
-**Prefilter (до LLM, отсекает ~80%).** По title: оставить `product manager|product owner|principal product|group product|head of product|product lead|technical product|platform product|ai product`; выбросить `intern|working student|praktikum|werkstudent|ausbildung`. Не прошедшие — `score=0, status='ignored'`, описание не сохранять.
+**Prefilter (до LLM, отсекает ~80%).** По title: оставить `product manager|product owner|principal product|group product|head of product|product lead|technical product|platform product|ai product`; выбросить `intern|working student|praktikum|werkstudent|ausbildung`. Не прошедшие — `score=0, status='off_profile'`, описание не сохранять. Это отдельный статус, а не `ignored`: в админке такие вакансии видно через фильтр «вне профиля» или «все, включая отсеянные», иначе непонятно, что именно отсёк префильтр.
 
 **Скоринг.** Gemini, модель из секрета `GEMINI_MODEL` (по умолчанию `gemini-3.7-flash`), батчи по 10, **через structured output, а не «верни JSON»**: `generationConfig.responseSchema` со схемой `{external_id, score: 0-100, reason, flags[]}` и `responseMimeType: application/json`. Схема гарантирует форму ответа и убирает парсинг фенсов. Системный промпт (`systemInstruction`) содержит `profile.content` из БД.
 

@@ -13,6 +13,7 @@ const STATUS_LABELS: Record<JobStatus, string> = {
   applied: "откликнулся",
   rejected: "отказ",
   ignored: "скрыта",
+  off_profile: "вне профиля",
 }
 
 const ACTIONS: Array<{ status: JobStatus; label: string }> = [
@@ -94,9 +95,20 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
         <select
           className="select"
           value={filters.status ?? ""}
-          onChange={(event) => setFilters((prev) => ({ ...prev, status: event.target.value || undefined }))}
+          onChange={(event) => {
+            const next = event.target.value || undefined
+            // Prefiltered jobs were never scored, so a score threshold would
+            // silently empty the very list the user just asked for.
+            const unscored = next === "any" || next === "off_profile"
+            setFilters((prev) => ({
+              ...prev,
+              status: next,
+              min_score: unscored ? 0 : prev.min_score,
+            }))
+          }}
         >
-          <option value="">Кроме скрытых</option>
+          <option value="">По профилю</option>
+          <option value="any">Все, включая отсеянные</option>
           {(Object.keys(STATUS_LABELS) as JobStatus[]).map((item) => (
             <option key={item} value={item}>
               {STATUS_LABELS[item]}
@@ -167,7 +179,10 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
                       </td>
                       <td className="col-company">{job.company}</td>
                       <td className="col-score">
-                        <ScoreBadge score={job.score} />
+                        <ScoreBadge
+                          score={job.status === "off_profile" ? null : job.score}
+                          hint="Не оценивалась: название не подошло под профиль"
+                        />
                       </td>
                       <td className="col-date">
                         <Age value={job.posted_at ?? job.first_seen_at} />
@@ -190,7 +205,13 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
                     {open === job.id ? (
                       <tr className="row-details">
                         <td colSpan={7}>
-                          {job.score_reason ? <p className="muted">{job.score_reason}</p> : null}
+                          {job.score_reason ? (
+                            <p className="muted">
+                              {job.score_reason === "prefilter"
+                                ? "Отсеяна по названию: роль не из продуктового списка, в скоринг не попала"
+                                : job.score_reason}
+                            </p>
+                          ) : null}
                           <Flags raw={job.flags} />
                           <div className="row-tight" style={{ flexWrap: "wrap" }}>
                             <span className="badge badge-neutral">{STATUS_LABELS[job.status]}</span>

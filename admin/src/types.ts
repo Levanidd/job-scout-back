@@ -1,6 +1,14 @@
 export type Tier = "watchlist" | "discovery"
 
-export type JobStatus = "new" | "notified" | "saved" | "applied" | "rejected" | "ignored"
+export type JobStatus =
+  | "new"
+  | "notified"
+  | "saved"
+  | "applied"
+  | "rejected"
+  | "ignored"
+  /** Title did not match the prefilter, so it was never scored. */
+  | "off_profile"
 
 export type Job = {
   id: string

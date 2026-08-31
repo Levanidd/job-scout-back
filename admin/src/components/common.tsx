@@ -19,10 +19,10 @@ export function Skeletons({ count = 3 }: { count?: number }) {
   )
 }
 
-export function ScoreBadge({ score }: { score: number | null }) {
+export function ScoreBadge({ score, hint }: { score: number | null; hint?: string }) {
   if (score == null) {
     return (
-      <span className="score badge-neutral" title="Ещё не оценена">
+      <span className="score badge-neutral" title={hint ?? "Ещё не оценена"}>
         —
       </span>
     )

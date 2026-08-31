@@ -156,12 +156,14 @@ function jobFilters(c: Context<{ Bindings: Bindings }>, withCompanies: boolean) 
   const clauses = ["j.closed_at IS NULL"]
   const binds: (string | number)[] = []
 
+  // Nothing is dropped from the list for good: the default view hides what the
+  // prefilter and the user set aside, `any` brings the whole pile back.
   const status = c.req.query("status")
-  if (status) {
+  if (status && status !== "any") {
     clauses.push("j.status = ?")
     binds.push(status)
-  } else {
-    clauses.push("j.status != 'ignored'")
+  } else if (!status) {
+    clauses.push("j.status NOT IN ('ignored', 'off_profile')")
   }
 
   const minScore = Number(c.req.query("min_score") ?? 0)
@@ -219,7 +221,7 @@ app.get("/api/jobs/companies", async (c) => {
 app.patch("/api/jobs/:id", async (c) => {
   const id = c.req.param("id")
   const body = await c.req.json<{ status: string }>()
-  const allowed = ["new", "notified", "saved", "applied", "rejected", "ignored"]
+  const allowed = ["new", "notified", "saved", "applied", "rejected", "ignored", "off_profile"]
   if (!allowed.includes(body.status)) return c.json({ error: "bad status" }, 400)
   await c.env.DB.prepare(`UPDATE jobs SET status = ? WHERE id = ?`).bind(body.status, id).run()
   return c.json({ ok: true })
@@ -241,7 +243,7 @@ app.put("/api/profile", async (c) => {
 app.post("/api/profile/rescore", async (c) => {
   await c.env.DB.prepare(
     `UPDATE jobs SET score = NULL, score_reason = NULL, flags = NULL
-     WHERE closed_at IS NULL AND status NOT IN ('ignored', 'rejected')`,
+     WHERE closed_at IS NULL AND status NOT IN ('ignored', 'rejected', 'off_profile')`,
   ).run()
   const scored = await prefilterAndScore(c.env)
   return c.json({ ok: true, scored })

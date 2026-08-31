@@ -46,7 +46,7 @@ export default function App() {
 
   function openCompanyJobs(company: DiscoveredCompany) {
     setPreset((prev) => ({
-      filters: { companies: [company.company_key], min_score: 0 },
+      filters: { companies: [company.company_key], min_score: 0, status: "any" },
       seq: (prev?.seq ?? 0) + 1,
     }))
     setTab("jobs")
