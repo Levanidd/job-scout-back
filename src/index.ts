@@ -128,8 +128,14 @@ app.post("/api/sources/bulk-detect", async (c) => {
 
 app.get("/api/discovered", async (c) => {
   const state = c.req.query("state") ?? "new"
+  // `hits` counts every pass of the ingest over a posting, not the postings
+  // themselves, so the card shows what is actually stored and openable.
   const rows = await c.env.DB.prepare(
-    `SELECT * FROM discovered_companies WHERE state = ? ORDER BY best_score DESC NULLS LAST, hits DESC`,
+    `SELECT d.*,
+       (SELECT COUNT(*) FROM jobs j WHERE j.company_key = d.company_key AND j.closed_at IS NULL) AS jobs_open
+     FROM discovered_companies d
+     WHERE d.state = ?
+     ORDER BY d.best_score DESC NULLS LAST, jobs_open DESC`,
   )
     .bind(state)
     .all()

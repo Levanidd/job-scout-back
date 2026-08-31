@@ -39,7 +39,10 @@ export type DiscoveredCompany = {
   company_key: string
   company: string
   first_seen_at: string
+  /** How many times the ingest walked over this company's postings. */
   hits: number
+  /** Postings we actually hold for it right now. */
+  jobs_open: number
   best_score: number | null
   sample_url: string | null
   careers_url: string | null

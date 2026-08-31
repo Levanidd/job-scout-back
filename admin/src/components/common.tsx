@@ -85,7 +85,7 @@ export function formatDate(value: string | null): string {
   return date.toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
 }
 
-function plural(count: number, forms: [string, string, string]): string {
+export function plural(count: number, forms: [string, string, string]): string {
   const tail = count % 10
   const teen = count % 100
   if (tail === 1 && teen !== 11) return forms[0]

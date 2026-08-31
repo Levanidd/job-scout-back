@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 
 import { api } from "../api"
 import { useAction, useApp } from "../app-context"
-import { Empty, ScoreBadge, Skeletons, formatDate } from "../components/common"
+import { Empty, ScoreBadge, Skeletons, formatDate, plural } from "../components/common"
 import type { DiscoveredCompany } from "../types"
 
 const STATES = [
@@ -64,6 +64,13 @@ export function Discovery({ onOpenJobs }: { onOpenJobs: (company: DiscoveredComp
         ))}
       </div>
 
+      {state === "new" ? (
+        <p className="muted">
+          Здесь только те вакансии компании, что попались в поисковых запросах. Чтобы забирать её доску целиком,
+          нажмите «Отслеживать» — компания станет источником, и следующий прогон принесёт всё, что у неё открыто.
+        </p>
+      ) : null}
+
       {companies === null ? (
         <Skeletons />
       ) : companies.length === 0 ? (
@@ -82,7 +89,8 @@ export function Discovery({ onOpenJobs }: { onOpenJobs: (company: DiscoveredComp
               <div>
                 <h3 className="card-title">{company.company}</h3>
                 <p className="card-sub">
-                  {company.hits} релевантных вакансий · с {formatDate(company.first_seen_at)}
+                  {company.jobs_open} {plural(company.jobs_open, ["вакансия", "вакансии", "вакансий"])} у нас
+                  {" · "}с {formatDate(company.first_seen_at)}
                 </p>
               </div>
               <ScoreBadge score={company.best_score} />
@@ -97,9 +105,11 @@ export function Discovery({ onOpenJobs }: { onOpenJobs: (company: DiscoveredComp
             ) : null}
 
             <div className="row">
-              <button className="btn btn-sm" onClick={() => onOpenJobs(company)}>
-                Все вакансии
-              </button>
+              {company.jobs_open > 0 ? (
+                <button className="btn btn-sm" onClick={() => onOpenJobs(company)}>
+                  Все вакансии ({company.jobs_open})
+                </button>
+              ) : null}
               {state === "new" ? (
                 <>
                   <button

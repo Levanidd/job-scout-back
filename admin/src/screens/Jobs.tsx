@@ -3,7 +3,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react"
 import { api, type JobFilters } from "../api"
 import { useAction } from "../app-context"
 import { MultiSelect } from "../components/MultiSelect"
-import { Age, Empty, Flags, ScoreBadge, Skeletons, formatDate } from "../components/common"
+import { Age, Empty, Flags, ScoreBadge, Skeletons, formatDate, plural } from "../components/common"
 import type { CompanyFacet, Job, JobStatus } from "../types"
 
 const STATUS_LABELS: Record<JobStatus, string> = {
@@ -135,7 +135,8 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
       ) : (
         <>
           <p className="muted">
-            {jobs.length} вакансий{picked.length > 0 ? ` · компаний в фильтре: ${picked.length}` : ""}
+            {jobs.length} {plural(jobs.length, ["вакансия", "вакансии", "вакансий"])}
+            {picked.length > 0 ? ` · компаний в фильтре: ${picked.length}` : ""}
           </p>
 
           <div className="table-wrap">
