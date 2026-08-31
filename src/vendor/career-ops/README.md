@@ -20,6 +20,21 @@ free, we map it. Every such edit is marked `job-scout patch` in place.
 | --- | --- |
 | `remoteok.mjs` | Keep `description` and `epoch` as `postedAt`. |
 | `remotive.mjs` | Keep `description` and `publication_date` as `postedAt`. |
+| `_http.mjs` | Trimmed to the retry policy; see below. |
+
+`_http.mjs` upstream also holds the low-level transport, which binds to
+`node:dns`, an IP guard and `Buffer` — none of which exist on Workers. Only
+`workday.mjs` imports the file, and only for the retry policy, because
+providers reach the transport through the injected context instead. The
+retained functions are verbatim; `BROWSER_LIKE_USER_AGENT` is inlined from
+upstream `user-agent.mjs` so the file has no imports left.
+
+## Known gaps
+
+`join`, `teamtailor`, `softgarden` and `workday` list pages carry no job
+description, so postings from them are scored on their title and location
+alone. Fetching one description per posting would cost a request each, which
+is why upstream does not do it either.
 
 ## Re-copying a provider
 

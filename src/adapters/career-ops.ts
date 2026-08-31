@@ -73,6 +73,26 @@ function createContext(): CareerOpsContext {
   }
 }
 
+const HOST_NOISE = new Set(["www", "careers", "career", "jobs", "job", "apply", "hiring", "join"])
+
+/**
+ * A single-company board is the company, so its payload never repeats the name
+ * and the providers read it off the config entry instead. The board URL is all
+ * we have to name it by: `join.com/companies/acme` and `acme.teamtailor.com`
+ * both come out as "acme".
+ */
+export function labelFromUrl(raw: string): string {
+  try {
+    const url = new URL(raw)
+    const path = url.pathname.match(/\/companies\/([^/?#]+)/)
+    if (path?.[1]) return decodeURIComponent(path[1])
+    const labels = url.hostname.toLowerCase().split(".").filter(Boolean)
+    return labels.slice(0, -1).find((label) => !HOST_NOISE.has(label)) ?? url.hostname
+  } catch {
+    return raw
+  }
+}
+
 export type BridgeOptions = {
   kind: "company" | "query"
   /** Overrides their entry-based detect, which cannot see a bare URL. */
@@ -98,8 +118,9 @@ export function fromCareerOps(provider: CareerOpsProvider, options: BridgeOption
     },
     async fetchJobs(token) {
       const entry = options.entry?.(token) ?? {
-        name: token,
+        name: labelFromUrl(token),
         careers_url: token,
+        api: token,
         provider: provider.id,
       }
       const jobs = await provider.fetch(entry, createContext())

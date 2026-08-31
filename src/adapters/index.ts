@@ -6,6 +6,7 @@ import { ashby } from "./ashby"
 import { greenhouse } from "./greenhouse"
 import { himalayas } from "./himalayas"
 import { jobicy } from "./jobicy"
+import { join } from "./join"
 import { lever } from "./lever"
 import { personio } from "./personio"
 import { recruitee } from "./recruitee"
@@ -13,9 +14,12 @@ import { remoteok } from "./remoteok"
 import { remotive } from "./remotive"
 import { rss } from "./rss"
 import { smartrecruiters } from "./smartrecruiters"
+import { softgarden } from "./softgarden"
+import { teamtailor } from "./teamtailor"
 import { thehub } from "./thehub"
 import { weworkremotely } from "./weworkremotely"
 import { workable } from "./workable"
+import { workday } from "./workday"
 
 export const adapters: Adapter[] = [
   greenhouse,
@@ -25,6 +29,10 @@ export const adapters: Adapter[] = [
   workable,
   smartrecruiters,
   recruitee,
+  join,
+  teamtailor,
+  softgarden,
+  workday,
   arbeitsagentur,
   arbeitnow,
   adzuna,

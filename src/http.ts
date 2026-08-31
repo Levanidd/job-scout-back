@@ -23,19 +23,29 @@ export async function fetchResponse(url: string, init: RequestInit = {}): Promis
   }
 }
 
+export type HttpError = Error & { status: number; retryAfter: string | null; body: string }
+
+/**
+ * Carries the status and Retry-After so a caller can tell a rate limit from a
+ * dead board. Retrying a 404 only burns time; retrying a 429 is the point.
+ */
+async function fail(url: string, res: Response): Promise<never> {
+  const error = new Error(`GET ${url} failed: ${res.status}`) as HttpError
+  error.status = res.status
+  error.retryAfter = res.headers.get("retry-after")
+  error.body = await res.text().catch(() => "")
+  throw error
+}
+
 export async function fetchJson(url: string, init: RequestInit = {}): Promise<unknown> {
   const res = await fetchResponse(url, init)
-  if (!res.ok) {
-    throw new Error(`GET ${url} failed: ${res.status}`)
-  }
+  if (!res.ok) await fail(url, res)
   return res.json()
 }
 
 export async function fetchText(url: string, init: RequestInit = {}): Promise<string> {
   const res = await fetchResponse(url, init)
-  if (!res.ok) {
-    throw new Error(`GET ${url} failed: ${res.status}`)
-  }
+  if (!res.ok) await fail(url, res)
   return res.text()
 }
 
