@@ -142,10 +142,22 @@ export async function runSource(env: Bindings, source: SourceRow): Promise<RunRe
 }
 
 async function watchedKeys(db: D1Database): Promise<Set<string>> {
+  return trackedCompanyKeys(db)
+}
+
+/** Employers we already follow on their own board, by label or ATS slug. */
+export async function trackedCompanyKeys(db: D1Database): Promise<Set<string>> {
   const rows = await db
-    .prepare(`SELECT label FROM sources WHERE deleted_at IS NULL AND kind = 'company'`)
-    .all<{ label: string }>()
-  return new Set(rows.results.map((row) => companyKey(row.label)))
+    .prepare(`SELECT label, token FROM sources WHERE deleted_at IS NULL AND kind = 'company'`)
+    .all<{ label: string; token: string }>()
+  const keys = new Set<string>()
+  for (const row of rows.results) {
+    for (const raw of [row.label, row.token]) {
+      const key = companyKey(raw)
+      if (key) keys.add(key)
+    }
+  }
+  return keys
 }
 
 /**

@@ -12,7 +12,9 @@ type AppContextValue = {
   refresh: () => void
   /** Bump after each source in a cycle so the Sources list can catch up live. */
   sourcesTick: number
+  touchSources: () => void
   runningSourceId: number | null
+  cycleRunning: boolean
 }
 
 const AppContext = createContext<AppContextValue | null>(null)

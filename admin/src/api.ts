@@ -3,6 +3,8 @@ import type {
   CompanyFacet,
   DetectResult,
   DiscoveredCompany,
+  ExploreBoard,
+  ExploreCompany,
   Job,
   JobStatus,
   ModelOption,
@@ -118,6 +120,19 @@ export const api = {
 
   dismissDiscovered(key: string): Promise<{ ok: true }> {
     return post(`/discovered/${encodeURIComponent(key)}/dismiss`)
+  },
+
+  exploreBoards(): Promise<{ boards: ExploreBoard[] }> {
+    return request("/explore/boards")
+  },
+
+  explore(providers: string[]): Promise<{ companies: ExploreCompany[] }> {
+    const query = encodeURIComponent(providers.join(","))
+    return request(`/explore?providers=${query}`)
+  },
+
+  addExplore(key: string): Promise<{ added: boolean; ats: string | null }> {
+    return post(`/explore/${encodeURIComponent(key)}/add`)
   },
 
   sources(): Promise<{ sources: Source[] }> {

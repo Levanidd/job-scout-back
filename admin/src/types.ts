@@ -35,6 +35,21 @@ export type CompanyFacet = {
   jobs: number
 }
 
+export type ExploreBoard = {
+  provider: string
+  jobs: number
+  sources: { id: number; label: string; enabled: number; jobs: number }[]
+}
+
+export type ExploreCompany = {
+  company_key: string
+  company: string
+  jobs: number
+  best_score: number | null
+  sample_url: string | null
+  providers: string
+}
+
 export type DiscoveredCompany = {
   company_key: string
   company: string

@@ -2,19 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType }
 
 import { api, forgetToken, getToken, UnauthorizedError, type JobFilters } from "./api"
 import { AppProvider, type ToastKind } from "./app-context"
-import { BriefcaseIcon, PersonIcon, RadarIcon, StackIcon } from "./components/icons"
+import { BriefcaseIcon, CompassIcon, PersonIcon, RadarIcon, StackIcon } from "./components/icons"
 import { RunProgress, type RunState } from "./components/RunProgress"
 import { Discovery } from "./screens/Discovery"
+import { Explore } from "./screens/Explore"
 import { Jobs } from "./screens/Jobs"
 import { Profile } from "./screens/Profile"
 import { Sources } from "./screens/Sources"
 import { TokenGate } from "./screens/TokenGate"
-import type { DiscoveredCompany } from "./types"
 
-type TabId = "discovery" | "jobs" | "sources" | "profile"
+type TabId = "discovery" | "explore" | "jobs" | "sources" | "profile"
 
 const TABS: Array<{ id: TabId; label: string; icon: ComponentType<{ className?: string }> }> = [
   { id: "discovery", label: "Discovery", icon: RadarIcon },
+  { id: "explore", label: "Исследовать", icon: CompassIcon },
   { id: "jobs", label: "Вакансии", icon: BriefcaseIcon },
   { id: "sources", label: "Источники", icon: StackIcon },
   { id: "profile", label: "Профиль", icon: PersonIcon },
@@ -51,7 +52,7 @@ export default function App() {
 
   useEffect(() => () => window.clearTimeout(timer.current), [])
 
-  function openCompanyJobs(company: DiscoveredCompany) {
+  function openCompanyJobs(company: { company_key: string }) {
     setPreset((prev) => ({
       filters: { companies: [company.company_key], min_score: 0, status: "any" },
       seq: (prev?.seq ?? 0) + 1,
@@ -66,9 +67,11 @@ export default function App() {
       refreshTick,
       refresh: () => setRefreshTick((n) => n + 1),
       sourcesTick,
+      touchSources: () => setSourcesTick((n) => n + 1),
       runningSourceId: run?.currentId ?? null,
+      cycleRunning: running,
     }),
-    [notify, logout, refreshTick, sourcesTick, run?.currentId],
+    [notify, logout, refreshTick, sourcesTick, run?.currentId, running],
   )
 
   /**
@@ -172,6 +175,7 @@ export default function App() {
         <main className="content">
           {run ? <RunProgress state={run} /> : null}
           {tab === "discovery" ? <Discovery onOpenJobs={openCompanyJobs} /> : null}
+          {tab === "explore" ? <Explore onOpenJobs={openCompanyJobs} /> : null}
           {tab === "jobs" ? <Jobs key={preset?.seq ?? "all"} preset={preset?.filters} /> : null}
           {tab === "sources" ? <Sources /> : null}
           {tab === "profile" ? <Profile /> : null}

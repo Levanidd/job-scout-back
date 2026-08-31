@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono"
 import { cors } from "hono/cors"
 
 import { adapters } from "./adapters"
-import { addDiscovered, notifyNew, pickSources, prefilterAndScore, runCycle, runSource } from "./ingest"
+import { addDiscovered, notifyNew, pickSources, prefilterAndScore, runCycle, runSource, trackedCompanyKeys } from "./ingest"
 import { detectUrl } from "./detect"
 import { isThinkingLevel, listModels, validateModel, type ThinkingLevel } from "./scoring"
 import { SETTING_MODEL, SETTING_THINKING, settingsView, writeSetting } from "./settings"
@@ -165,6 +165,106 @@ app.post("/api/discovered/:key/dismiss", async (c) => {
   const key = c.req.param("key")
   await c.env.DB.prepare(`UPDATE discovered_companies SET state = 'dismissed' WHERE company_key = ?`).bind(key).run()
   return c.json({ ok: true })
+})
+
+app.get("/api/explore/boards", async (c) => {
+  const rows = await c.env.DB.prepare(
+    `SELECT s.provider, s.id, s.label, s.enabled,
+       (SELECT COUNT(*) FROM jobs j WHERE j.source_id = s.id AND j.closed_at IS NULL) AS jobs
+     FROM sources s
+     WHERE s.deleted_at IS NULL AND s.kind = 'query'
+     ORDER BY s.provider, s.label`,
+  ).all<{ provider: string; id: number; label: string; enabled: number; jobs: number }>()
+
+  const boards = new Map<
+    string,
+    { provider: string; jobs: number; sources: { id: number; label: string; enabled: number; jobs: number }[] }
+  >()
+  for (const row of rows.results) {
+    const board = boards.get(row.provider) ?? { provider: row.provider, jobs: 0, sources: [] }
+    board.jobs += row.jobs
+    board.sources.push({ id: row.id, label: row.label, enabled: row.enabled, jobs: row.jobs })
+    boards.set(row.provider, board)
+  }
+  return c.json({ boards: [...boards.values()] })
+})
+
+app.get("/api/explore", async (c) => {
+  const providers = (c.req.query("providers") ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => adapters.some((adapter) => adapter.provider === item && adapter.kind === "query"))
+  if (providers.length === 0) return c.json({ companies: [] })
+
+  const placeholders = providers.map(() => "?").join(", ")
+  const rows = await c.env.DB.prepare(
+    `SELECT j.company_key AS company_key,
+       MIN(j.company) AS company,
+       COUNT(*) AS jobs,
+       MAX(j.score) AS best_score,
+       (
+         SELECT j2.url FROM jobs j2
+         JOIN sources s2 ON s2.id = j2.source_id
+         WHERE j2.company_key = j.company_key AND j2.closed_at IS NULL
+           AND s2.kind = 'query' AND s2.provider IN (${placeholders})
+         ORDER BY j2.score DESC NULLS LAST, j2.first_seen_at DESC
+         LIMIT 1
+       ) AS sample_url,
+       GROUP_CONCAT(DISTINCT s.provider) AS providers
+     FROM jobs j
+     JOIN sources s ON s.id = j.source_id
+     WHERE j.closed_at IS NULL AND s.kind = 'query' AND s.deleted_at IS NULL
+       AND s.provider IN (${placeholders})
+       AND j.company_key IS NOT NULL AND j.company_key != ''
+     GROUP BY j.company_key
+     ORDER BY best_score DESC NULLS LAST, jobs DESC
+     LIMIT 800`,
+  )
+    .bind(...providers, ...providers)
+    .all<{
+      company_key: string
+      company: string
+      jobs: number
+      best_score: number | null
+      sample_url: string | null
+      providers: string
+    }>()
+
+  const watched = await trackedCompanyKeys(c.env.DB)
+  const companies = rows.results.filter((row) => row.company_key && !watched.has(row.company_key))
+  return c.json({ companies })
+})
+
+app.post("/api/explore/:key/add", async (c) => {
+  const key = c.req.param("key")
+  const row = await c.env.DB.prepare(
+    `SELECT j.company, j.url FROM jobs j
+     WHERE j.company_key = ? AND j.closed_at IS NULL
+     ORDER BY j.score DESC NULLS LAST, j.first_seen_at DESC
+     LIMIT 1`,
+  )
+    .bind(key)
+    .first<{ company: string; url: string }>()
+  if (!row) return c.json({ error: "not found" }, 404)
+
+  const detected = await detectUrl(row.url, c.env)
+  if (detected.ats && detected.token && detected.ok) {
+    await c.env.DB.prepare(
+      `INSERT INTO sources (kind, tier, label, provider, token, careers_url, bootstrapped)
+       VALUES ('company', 'watchlist', ?, ?, ?, ?, 0)
+       ON CONFLICT(provider, token) DO UPDATE SET
+         deleted_at = NULL, enabled = 1, label = excluded.label, created_at = datetime('now')`,
+    )
+      .bind(row.company, detected.ats, detected.token, row.url)
+      .run()
+    await c.env.DB.prepare(
+      `UPDATE discovered_companies SET state = 'added', detected_ats = ? WHERE company_key = ?`,
+    )
+      .bind(detected.ats, key)
+      .run()
+    return c.json({ added: true, ats: detected.ats })
+  }
+  return c.json({ added: false, ats: null })
 })
 
 function jobFilters(c: Context<{ Bindings: Bindings }>, withCompanies: boolean) {

@@ -40,6 +40,15 @@ export function StackIcon({ className }: IconProps) {
   )
 }
 
+export function CompassIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <circle cx="12" cy="12" r="9" />
+      <polygon points="16.5,7.5 10.5,10.5 7.5,16.5 13.5,13.5" />
+    </svg>
+  )
+}
+
 export function PersonIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className}>
