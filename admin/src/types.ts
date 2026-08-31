@@ -65,6 +65,7 @@ export type Source = {
   active_jobs: number
   last_error: string | null
   last_ok: number | null
+  created_at: string
 }
 
 export type DetectResult = {

@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 
 import { api } from "../api"
 import { useAction, useApp } from "../app-context"
-import { Empty, Field, Skeletons, formatDate } from "../components/common"
+import { SortHeader } from "../components/SortHeader"
+import { Age, Empty, Field, Skeletons } from "../components/common"
 import type { DetectResult, Source, Tier } from "../types"
 
 const ATS_SUBDOMAINS = new Set(["jobs", "boards", "job-boards", "apply", "careers"])
@@ -41,6 +42,67 @@ function labelFor(raw: string, token: string | null): string {
 
 type Pending = DetectResult & { url: string; label: string; tier: Tier }
 
+type SourceSort = "label" | "provider" | "kind" | "tier" | "jobs" | "run" | "status" | "added"
+
+const DEFAULT_DIR: Record<SourceSort, "asc" | "desc"> = {
+  label: "asc",
+  provider: "asc",
+  kind: "asc",
+  tier: "asc",
+  jobs: "desc",
+  run: "desc",
+  status: "asc",
+  added: "desc",
+}
+
+function runStatus(source: Source): "ok" | "error" | "never" {
+  if (source.last_ok == null) return "never"
+  return Number(source.last_ok) ? "ok" : "error"
+}
+
+function compare(a: Source, b: Source, sort: SourceSort, dir: "asc" | "desc"): number {
+  const sign = dir === "asc" ? 1 : -1
+  let left: string | number = 0
+  let right: string | number = 0
+  switch (sort) {
+    case "label":
+      left = a.label.toLowerCase()
+      right = b.label.toLowerCase()
+      break
+    case "provider":
+      left = a.provider
+      right = b.provider
+      break
+    case "kind":
+      left = a.kind
+      right = b.kind
+      break
+    case "tier":
+      left = a.tier
+      right = b.tier
+      break
+    case "jobs":
+      left = a.active_jobs
+      right = b.active_jobs
+      break
+    case "run":
+      left = a.last_run_at ?? ""
+      right = b.last_run_at ?? ""
+      break
+    case "status":
+      left = runStatus(a)
+      right = runStatus(b)
+      break
+    case "added":
+      left = a.created_at ?? ""
+      right = b.created_at ?? ""
+      break
+  }
+  if (left < right) return -1 * sign
+  if (left > right) return 1 * sign
+  return b.id - a.id
+}
+
 export function Sources() {
   const run = useAction()
   const { notify, refreshTick, sourcesTick, runningSourceId } = useApp()
@@ -52,6 +114,14 @@ export function Sources() {
   const [bulkBusy, setBulkBusy] = useState(false)
   const [editing, setEditing] = useState<number | null>(null)
   const [draft, setDraft] = useState("")
+  const [query, setQuery] = useState("")
+  const [kind, setKind] = useState("")
+  const [tier, setTier] = useState("")
+  const [enabled, setEnabled] = useState("")
+  const [status, setStatus] = useState("")
+  const [provider, setProvider] = useState("")
+  const [sort, setSort] = useState<SourceSort>("added")
+  const [dir, setDir] = useState<"asc" | "desc">("desc")
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setSources(null)
@@ -67,6 +137,29 @@ export function Sources() {
     if (refreshTick === 0 && sourcesTick === 0) return
     void load(true)
   }, [refreshTick, sourcesTick, load])
+
+  const providers = useMemo(() => {
+    if (!sources) return []
+    return [...new Set(sources.map((item) => item.provider))].sort()
+  }, [sources])
+
+  const rows = useMemo(() => {
+    if (!sources) return []
+    const needle = query.trim().toLowerCase()
+    return sources
+      .filter((item) => {
+        if (kind && item.kind !== kind) return false
+        if (tier && item.tier !== tier) return false
+        if (enabled === "on" && !item.enabled) return false
+        if (enabled === "off" && item.enabled) return false
+        if (status && runStatus(item) !== status) return false
+        if (provider && item.provider !== provider) return false
+        if (!needle) return true
+        const hay = `${item.label} ${item.provider} ${item.token} ${item.careers_url ?? ""}`.toLowerCase()
+        return hay.includes(needle)
+      })
+      .sort((a, b) => compare(a, b, sort, dir))
+  }, [sources, query, kind, tier, enabled, status, provider, sort, dir])
 
   async function detect() {
     if (!url.trim()) return
@@ -99,7 +192,9 @@ export function Sources() {
     if (!result) return
     setPending(null)
     setUrl("")
-    await load()
+    setSort("added")
+    setDir("desc")
+    await load(true)
   }
 
   async function runBulk() {
@@ -128,14 +223,16 @@ export function Sources() {
     }
     notify(`Определилось ${found.length} из ${result.results.length}, добавлены в watchlist`, "ok")
     setBulk("")
-    await load()
+    setSort("added")
+    setDir("desc")
+    await load(true)
   }
 
   async function toggle(source: Source) {
-    const enabled = source.enabled ? 0 : 1
-    const result = await run(() => api.updateSource(source.id, { enabled }))
+    const next = source.enabled ? 0 : 1
+    const result = await run(() => api.updateSource(source.id, { enabled: next }))
     if (!result) return
-    setSources((prev) => prev?.map((item) => (item.id === source.id ? { ...item, enabled } : item)) ?? null)
+    setSources((prev) => prev?.map((item) => (item.id === source.id ? { ...item, enabled: next } : item)) ?? null)
   }
 
   async function rename(source: Source) {
@@ -147,10 +244,10 @@ export function Sources() {
     setSources((prev) => prev?.map((item) => (item.id === source.id ? { ...item, label } : item)) ?? null)
   }
 
-  async function changeTier(source: Source, tier: Tier) {
-    const result = await run(() => api.updateSource(source.id, { tier }))
+  async function changeTier(source: Source, next: Tier) {
+    const result = await run(() => api.updateSource(source.id, { tier: next }))
     if (!result) return
-    setSources((prev) => prev?.map((item) => (item.id === source.id ? { ...item, tier } : item)) ?? null)
+    setSources((prev) => prev?.map((item) => (item.id === source.id ? { ...item, tier: next } : item)) ?? null)
   }
 
   async function runOne(source: Source) {
@@ -162,14 +259,22 @@ export function Sources() {
         : `${source.label}: ${result.run.error ?? "ошибка"}`,
       result.run.ok ? "ok" : "error",
     )
-    await load()
+    await load(true)
   }
 
   async function remove(source: Source) {
     if (!confirm(`Удалить «${source.label}»? История откликов сохранится.`)) return
     const result = await run(() => api.deleteSource(source.id), `${source.label} удалена`)
     if (!result) return
-    await load()
+    setSources((prev) => prev?.filter((item) => item.id !== source.id) ?? null)
+  }
+
+  function sortBy(column: SourceSort) {
+    if (sort === column) setDir((prev) => (prev === "asc" ? "desc" : "asc"))
+    else {
+      setSort(column)
+      setDir(DEFAULT_DIR[column])
+    }
   }
 
   return (
@@ -258,10 +363,42 @@ export function Sources() {
         </div>
       </section>
 
-      <div className="row" style={{ justifyContent: "space-between" }}>
-        <h2 className="section-title" style={{ margin: 0 }}>
-          Источники
-        </h2>
+      <div className="filters">
+        <input
+          className="input"
+          placeholder="Поиск"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <select className="select" value={kind} onChange={(event) => setKind(event.target.value)}>
+          <option value="">Все типы</option>
+          <option value="company">компания</option>
+          <option value="query">запрос</option>
+        </select>
+        <select className="select" value={tier} onChange={(event) => setTier(event.target.value)}>
+          <option value="">Все уровни</option>
+          <option value="watchlist">watchlist</option>
+          <option value="discovery">discovery</option>
+        </select>
+        <select className="select" value={enabled} onChange={(event) => setEnabled(event.target.value)}>
+          <option value="">Вкл и выкл</option>
+          <option value="on">включённые</option>
+          <option value="off">выключенные</option>
+        </select>
+        <select className="select" value={status} onChange={(event) => setStatus(event.target.value)}>
+          <option value="">Любой статус</option>
+          <option value="ok">ок</option>
+          <option value="error">ошибка</option>
+          <option value="never">не запускался</option>
+        </select>
+        <select className="select" value={provider} onChange={(event) => setProvider(event.target.value)}>
+          <option value="">Все ATS</option>
+          {providers.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </select>
         <button className="btn btn-ghost btn-sm" onClick={() => void load(true)}>
           Обновить
         </button>
@@ -271,87 +408,115 @@ export function Sources() {
         <Skeletons />
       ) : sources.length === 0 ? (
         <Empty title="Источников нет" hint="Похоже, миграции ещё не накатились." />
+      ) : rows.length === 0 ? (
+        <Empty title="Ничего не нашлось" hint="Сбросьте фильтры." />
       ) : (
-        sources.map((source) => (
-          <article key={source.id} className={`card ${runningSourceId === source.id ? "is-busy" : ""}`}>
-            <div className="card-head">
-              <div className="grow">
-                {editing === source.id ? (
-                  <div className="row-tight">
-                    <input
-                      className="input"
-                      value={draft}
-                      autoFocus
-                      onChange={(event) => setDraft(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") void rename(source)
-                        if (event.key === "Escape") setEditing(null)
-                      }}
-                    />
-                    <button className="btn btn-primary btn-sm" onClick={() => void rename(source)}>
-                      ОК
-                    </button>
-                  </div>
-                ) : (
-                  <h3 className="card-title">{source.label}</h3>
-                )}
-                <p className="card-sub">
-                  {source.provider} · {source.kind === "query" ? "запрос" : "компания"} · активных{" "}
-                  {source.active_jobs}
-                </p>
-                {/* Two companies on the same ATS get the same provider line, so the
-                    board address is what actually tells the cards apart. */}
-                {source.careers_url ? (
-                  <a className="mono" href={source.careers_url} target="_blank" rel="noreferrer">
-                    {source.careers_url}
-                  </a>
-                ) : (
-                  <span className="mono">{source.token}</span>
-                )}
-              </div>
-              {source.last_ok == null ? (
-                <span className="badge badge-neutral">не запускался</span>
-              ) : Number(source.last_ok) ? (
-                <span className="badge badge-positive">ок</span>
-              ) : (
-                <span className="badge badge-negative">ошибка</span>
-              )}
-            </div>
-
-            {source.last_error ? <p className="error-text">{source.last_error}</p> : null}
-            <p className="muted">Последний прогон: {formatDate(source.last_run_at)}</p>
-
-            <div className="row">
-              <select
-                className="select"
-                style={{ width: "auto" }}
-                value={source.tier}
-                onChange={(event) => void changeTier(source, event.target.value as Tier)}
-              >
-                <option value="watchlist">watchlist</option>
-                <option value="discovery">discovery</option>
-              </select>
-              <button className="btn btn-sm" onClick={() => void toggle(source)}>
-                {source.enabled ? "Выключить" : "Включить"}
-              </button>
-              <button className="btn btn-sm" onClick={() => void runOne(source)}>
-                Прогнать
-              </button>
-              <button
-                className="btn btn-ghost btn-sm"
-                onClick={() => {
-                  setEditing(source.id)
-                  setDraft(source.label)
-                }}
-              >
-                Переименовать
-              </button>
-              <button className="btn btn-danger btn-sm" onClick={() => void remove(source)}>
-                Удалить
-              </button>
-            </div>
-          </article>
-        ))
+        <>
+          <p className="muted">
+            {rows.length} из {sources.length}
+          </p>
+          <div className="table-wrap">
+            <table className="table table-compact">
+              <thead>
+                <tr>
+                  <SortHeader column="label" label="Название" sort={sort} dir={dir} onSort={sortBy} />
+                  <SortHeader column="provider" label="ATS" sort={sort} dir={dir} onSort={sortBy} />
+                  <SortHeader column="kind" label="Тип" sort={sort} dir={dir} onSort={sortBy} />
+                  <SortHeader column="tier" label="Уровень" sort={sort} dir={dir} onSort={sortBy} />
+                  <SortHeader column="jobs" label="Вакансий" sort={sort} dir={dir} onSort={sortBy} className="col-score" />
+                  <SortHeader column="run" label="Прогон" sort={sort} dir={dir} onSort={sortBy} className="col-date" />
+                  <SortHeader column="status" label="Статус" sort={sort} dir={dir} onSort={sortBy} />
+                  <th>Ссылка</th>
+                  <th className="col-actions" />
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((source) => (
+                  <tr
+                    key={source.id}
+                    className={`${runningSourceId === source.id ? "is-busy" : ""} ${source.enabled ? "" : "is-off"}`}
+                    title={source.last_error ?? undefined}
+                  >
+                    <td>
+                      {editing === source.id ? (
+                        <input
+                          className="input"
+                          value={draft}
+                          autoFocus
+                          onChange={(event) => setDraft(event.target.value)}
+                          onBlur={() => void rename(source)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") void rename(source)
+                            if (event.key === "Escape") setEditing(null)
+                          }}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          className="th-sort"
+                          style={{ textTransform: "none", letterSpacing: 0, fontWeight: 600, color: "var(--text-primary)" }}
+                          onClick={() => {
+                            setEditing(source.id)
+                            setDraft(source.label)
+                          }}
+                        >
+                          {source.label}
+                        </button>
+                      )}
+                    </td>
+                    <td>{source.provider}</td>
+                    <td>{source.kind === "query" ? "запрос" : "компания"}</td>
+                    <td>
+                      <select
+                        className="select select-inline"
+                        value={source.tier}
+                        onChange={(event) => void changeTier(source, event.target.value as Tier)}
+                      >
+                        <option value="watchlist">watchlist</option>
+                        <option value="discovery">discovery</option>
+                      </select>
+                    </td>
+                    <td className="col-score">{source.active_jobs}</td>
+                    <td className="col-date">
+                      <Age value={source.last_run_at} warnAfter={7} />
+                    </td>
+                    <td>
+                      {runStatus(source) === "never" ? (
+                        <span className="badge badge-neutral">не запускался</span>
+                      ) : runStatus(source) === "ok" ? (
+                        <span className="badge badge-positive">ок</span>
+                      ) : (
+                        <span className="badge badge-negative">ошибка</span>
+                      )}
+                    </td>
+                    <td className="col-url">
+                      {source.careers_url ? (
+                        <a className="mono" href={source.careers_url} target="_blank" rel="noreferrer" title={source.careers_url}>
+                          {source.careers_url.replace(/^https:\/\//, "")}
+                        </a>
+                      ) : (
+                        <span className="mono">{source.token}</span>
+                      )}
+                    </td>
+                    <td className="col-actions">
+                      <div className="row-tight">
+                        <button className="btn btn-sm" onClick={() => void runOne(source)}>
+                          Прогнать
+                        </button>
+                        <button className="btn btn-sm" onClick={() => void toggle(source)}>
+                          {source.enabled ? "Выкл" : "Вкл"}
+                        </button>
+                        <button className="btn btn-danger btn-sm" onClick={() => void remove(source)}>
+                          Удалить
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </>
   )

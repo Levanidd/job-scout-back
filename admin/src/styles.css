@@ -94,7 +94,7 @@ a:hover {
 }
 
 .content {
-  max-width: 880px;
+  max-width: 1120px;
   margin: 0 auto;
   padding: 16px;
   display: flex;
@@ -154,7 +154,7 @@ a:hover {
     top: 61px;
     bottom: auto;
     justify-content: flex-start;
-    max-width: 880px;
+    max-width: 1120px;
     margin: 0 auto;
     padding: 10px 16px;
     border-top: none;
@@ -461,6 +461,48 @@ a:hover {
 
 .table tr.is-applied td {
   background: rgba(48, 209, 88, 0.06);
+}
+
+.table tr.is-busy td {
+  background: rgba(147, 92, 255, 0.08);
+}
+
+.table tr.is-off td {
+  opacity: 0.55;
+}
+
+.table-compact {
+  min-width: 1100px;
+}
+
+.table-compact td {
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.col-url {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.col-url a,
+.col-url .mono {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.col-actions {
+  width: 1%;
+}
+
+.select-inline {
+  width: auto;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  font-size: 13px;
 }
 
 .col-check {

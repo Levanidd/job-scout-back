@@ -3,6 +3,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react"
 import { api, type JobFilters, type JobSort } from "../api"
 import { useAction, useApp } from "../app-context"
 import { MultiSelect } from "../components/MultiSelect"
+import { SortHeader } from "../components/SortHeader"
 import { Age, Empty, Flags, ScoreBadge, Skeletons, formatDate, plural } from "../components/common"
 import type { CompanyFacet, Job, JobStatus } from "../types"
 
@@ -30,36 +31,6 @@ const DEFAULT_DIR: Record<JobSort, "asc" | "desc"> = {
   posted: "desc",
   updated: "desc",
   added: "desc",
-}
-
-function SortHeader({
-  column,
-  label,
-  sort,
-  dir,
-  onSort,
-  className,
-  title,
-}: {
-  column: JobSort
-  label: string
-  sort: JobSort
-  dir: "asc" | "desc"
-  onSort: (column: JobSort) => void
-  className?: string
-  title?: string
-}) {
-  const active = sort === column
-  return (
-    <th className={className} title={title} aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}>
-      <button type="button" className={`th-sort ${active ? "is-active" : ""}`} onClick={() => onSort(column)}>
-        {label}
-        <span className="th-arrow" aria-hidden>
-          {active ? (dir === "asc" ? "↑" : "↓") : "↕"}
-        </span>
-      </button>
-    </th>
-  )
 }
 
 export function Jobs({ preset }: { preset?: JobFilters }) {

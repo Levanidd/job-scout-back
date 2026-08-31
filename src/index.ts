@@ -37,7 +37,7 @@ app.get("/api/sources", async (c) => {
          (SELECT ok FROM source_runs r WHERE r.source_id = s.id ORDER BY r.id DESC LIMIT 1),
          CASE WHEN EXISTS (SELECT 1 FROM jobs j WHERE j.source_id = s.id) THEN 1 END
        ) AS last_ok
-     FROM sources s WHERE s.deleted_at IS NULL ORDER BY s.tier, s.label`,
+     FROM sources s WHERE s.deleted_at IS NULL ORDER BY s.created_at DESC, s.id DESC`,
   ).all()
   return c.json({ sources: rows.results })
 })
@@ -58,7 +58,8 @@ app.post("/api/sources", async (c) => {
     `INSERT INTO sources (kind, tier, label, provider, token, careers_url)
      VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(provider, token) DO UPDATE SET
-       deleted_at = NULL, enabled = 1, label = excluded.label, tier = excluded.tier, careers_url = excluded.careers_url`,
+       deleted_at = NULL, enabled = 1, label = excluded.label, tier = excluded.tier, careers_url = excluded.careers_url,
+       created_at = datetime('now')`,
   )
     .bind(
       // The adapter knows whether its token is a company board or a search
