@@ -420,14 +420,14 @@ export function Sources() {
               <thead>
                 <tr>
                   <SortHeader column="label" label="Название" sort={sort} dir={dir} onSort={sortBy} />
-                  <SortHeader column="provider" label="ATS" sort={sort} dir={dir} onSort={sortBy} />
-                  <SortHeader column="kind" label="Тип" sort={sort} dir={dir} onSort={sortBy} />
                   <SortHeader column="tier" label="Уровень" sort={sort} dir={dir} onSort={sortBy} />
                   <SortHeader column="jobs" label="Вакансий" sort={sort} dir={dir} onSort={sortBy} className="col-score" />
                   <SortHeader column="run" label="Прогон" sort={sort} dir={dir} onSort={sortBy} className="col-date" />
                   <SortHeader column="status" label="Статус" sort={sort} dir={dir} onSort={sortBy} />
-                  <th>Ссылка</th>
                   <th className="col-actions" />
+                  <SortHeader column="provider" label="ATS" sort={sort} dir={dir} onSort={sortBy} />
+                  <SortHeader column="kind" label="Тип" sort={sort} dir={dir} onSort={sortBy} />
+                  <th>Ссылка</th>
                 </tr>
               </thead>
               <tbody>
@@ -464,8 +464,6 @@ export function Sources() {
                         </button>
                       )}
                     </td>
-                    <td>{source.provider}</td>
-                    <td>{source.kind === "query" ? "запрос" : "компания"}</td>
                     <td>
                       <select
                         className="select select-inline"
@@ -489,15 +487,6 @@ export function Sources() {
                         <span className="badge badge-negative">ошибка</span>
                       )}
                     </td>
-                    <td className="col-url">
-                      {source.careers_url ? (
-                        <a className="mono" href={source.careers_url} target="_blank" rel="noreferrer" title={source.careers_url}>
-                          {source.careers_url.replace(/^https:\/\//, "")}
-                        </a>
-                      ) : (
-                        <span className="mono">{source.token}</span>
-                      )}
-                    </td>
                     <td className="col-actions">
                       <div className="row-tight">
                         <button className="btn btn-sm" onClick={() => void runOne(source)}>
@@ -510,6 +499,17 @@ export function Sources() {
                           Удалить
                         </button>
                       </div>
+                    </td>
+                    <td>{source.provider}</td>
+                    <td>{source.kind === "query" ? "запрос" : "компания"}</td>
+                    <td className="col-url">
+                      {source.careers_url ? (
+                        <a className="mono" href={source.careers_url} target="_blank" rel="noreferrer" title={source.careers_url}>
+                          {source.careers_url.replace(/^https:\/\//, "")}
+                        </a>
+                      ) : (
+                        <span className="mono">{source.token}</span>
+                      )}
                     </td>
                   </tr>
                 ))}
