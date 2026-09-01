@@ -309,7 +309,7 @@ const JOB_ORDER: Record<string, string> = {
   company: "j.company COLLATE NOCASE",
   score: "j.score",
   posted: "COALESCE(j.posted_at, j.first_seen_at)",
-  updated: "j.last_seen_at",
+  updated: "COALESCE(j.changed_at, j.first_seen_at)",
   added: "j.first_seen_at",
 }
 
@@ -321,7 +321,7 @@ function jobOrder(c: Context<{ Bindings: Bindings }>): string {
 
 // Descriptions run to kilobytes each and the list never shows them.
 const JOB_COLUMNS = `j.id, j.source_id, j.company, j.company_key, j.title, j.location, j.url,
-  j.posted_at, j.first_seen_at, j.last_seen_at, j.score, j.score_reason, j.flags, j.status, j.applied_at`
+  j.posted_at, j.first_seen_at, j.last_seen_at, j.changed_at, j.score, j.score_reason, j.flags, j.status, j.applied_at`
 
 app.get("/api/applied", async (c) => {
   const status = c.req.query("status") ?? ""
@@ -331,7 +331,7 @@ app.get("/api/applied", async (c) => {
     clauses.push("j.status = ?")
     binds.push(status)
   }
-  const sql = `SELECT ${JOB_COLUMNS}, j.description, j.notes, s.tier, s.label as source_label
+  const sql = `SELECT ${JOB_COLUMNS}, j.notes, s.tier, s.label as source_label
     FROM jobs j JOIN sources s ON s.id = j.source_id
     WHERE ${clauses.join(" AND ")}
     ORDER BY j.applied_at DESC
@@ -362,6 +362,19 @@ app.get("/api/jobs/companies", async (c) => {
     ORDER BY company COLLATE NOCASE`
   const rows = await c.env.DB.prepare(sql).bind(...binds).all()
   return c.json({ companies: rows.results })
+})
+
+app.get("/api/jobs/:id", async (c) => {
+  const id = c.req.param("id")
+  const row = await c.env.DB.prepare(
+    `SELECT ${JOB_COLUMNS}, j.description, j.notes, s.tier, s.label as source_label
+     FROM jobs j JOIN sources s ON s.id = j.source_id
+     WHERE j.id = ?`,
+  )
+    .bind(id)
+    .first()
+  if (!row) return c.json({ error: "not found" }, 404)
+  return c.json({ job: row })
 })
 
 app.post("/api/jobs/score", async (c) => {

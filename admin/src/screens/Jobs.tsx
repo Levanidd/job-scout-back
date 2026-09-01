@@ -330,7 +330,7 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
                     dir={dir}
                     onSort={sortBy}
                     className="col-date"
-                    title="Когда последний раз видели вакансию в источнике"
+                    title="Когда вакансия изменилась у источника"
                   />
                   <th className="col-more" />
                 </tr>
@@ -380,7 +380,7 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
                         <Age value={job.first_seen_at} warnAfter={14} />
                       </td>
                       <td className="col-date">
-                        <Age value={job.last_seen_at} warnAfter={7} />
+                        <Age value={job.changed_at ?? job.first_seen_at} warnAfter={7} />
                       </td>
                       <td className="col-more">
                         <button

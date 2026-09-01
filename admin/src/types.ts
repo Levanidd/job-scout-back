@@ -22,6 +22,7 @@ export type Job = {
   posted_at: string | null
   first_seen_at: string
   last_seen_at: string
+  changed_at?: string | null
   score: number | null
   score_reason: string | null
   flags: string | null

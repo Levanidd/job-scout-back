@@ -18,6 +18,17 @@ const PIPE_ACTIONS: Array<{ status: JobStatus; label: string }> = [
   { status: "rejected", label: "Отказ" },
 ]
 
+const PIPE_LABELS: Record<"applied" | "interview" | "rejected", string> = {
+  applied: "подался",
+  interview: "интервью",
+  rejected: "отказ",
+}
+
+function pipeLabel(status: JobStatus): string {
+  if (status === "applied" || status === "interview" || status === "rejected") return PIPE_LABELS[status]
+  return status
+}
+
 function Meta({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
@@ -67,6 +78,7 @@ export function Applied() {
   const { refreshTick, refresh } = useApp()
   const [status, setStatus] = useState<"" | "applied" | "interview" | "rejected">("")
   const [jobs, setJobs] = useState<Job[] | null>(null)
+  const [open, setOpen] = useState<Job | null>(null)
 
   const load = useCallback(
     async (silent = false) => {
@@ -86,16 +98,85 @@ export function Applied() {
     void load(true)
   }, [refreshTick, load])
 
+  async function openCard(job: Job) {
+    setOpen(job)
+    const result = await run(() => api.job(job.id))
+    if (result) setOpen(result.job)
+  }
+
+  function patchOpen(next: Partial<Job>) {
+    const id = open?.id
+    setOpen((prev) => (prev ? { ...prev, ...next } : prev))
+    if (!id) return
+    setJobs((prev) => prev?.map((item) => (item.id === id ? { ...item, ...next } : item)) ?? null)
+  }
+
   async function setPipeline(job: Job, next: JobStatus) {
     const result = await run(() => api.setJobStatus(job.id, next))
     if (!result) return
+    const update = { status: result.status, applied_at: result.applied_at }
+    setOpen((prev) => (prev && prev.id === job.id ? { ...prev, ...update } : prev))
     setJobs(
       (prev) =>
         prev
-          ?.map((item) =>
-            item.id === job.id ? { ...item, status: result.status, applied_at: result.applied_at } : item,
-          )
+          ?.map((item) => (item.id === job.id ? { ...item, ...update } : item))
           .filter((item) => !status || item.status === status) ?? null,
+    )
+    if (status && result.status !== status) setOpen(null)
+  }
+
+  if (open) {
+    return (
+      <>
+        <div className="row">
+          <button className="btn btn-ghost btn-sm" onClick={() => setOpen(null)}>
+            ← К списку
+          </button>
+        </div>
+        <article className="card">
+          <div className="card-head">
+            <div>
+              <h3 className="card-title">
+                <a href={open.url} target="_blank" rel="noreferrer">
+                  {open.title}
+                </a>
+              </h3>
+              <p className="card-sub">
+                {open.company}
+                {open.location ? ` · ${open.location}` : ""}
+              </p>
+            </div>
+            <ScoreBadge score={open.score} />
+          </div>
+
+          <div className="applied-meta">
+            <Meta label="Опубликована" value={open.posted_at} />
+            <Meta label="Добавлена" value={open.first_seen_at} />
+            <Meta label="Обновлена" value={open.changed_at ?? open.first_seen_at} />
+            <Meta label="Подался" value={open.applied_at} />
+          </div>
+
+          <div className="row">
+            {PIPE_ACTIONS.map((action) => (
+              <button
+                key={action.status}
+                className={`btn btn-sm ${open.status === action.status ? "btn-primary" : ""}`}
+                onClick={() => void setPipeline(open, action.status)}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+
+          {open.description ? (
+            <div className="job-description">{open.description}</div>
+          ) : (
+            <p className="muted">Описание не сохранилось — его не было в источнике или его отсекли до скоринга.</p>
+          )}
+
+          <Notes job={open} onSaved={(notes) => patchOpen({ notes })} />
+        </article>
+      </>
     )
   }
 
@@ -121,59 +202,68 @@ export function Applied() {
       ) : jobs.length === 0 ? (
         <Empty
           title="Пока пусто"
-          hint="Отметьте «Подался» в списке вакансий — карточка появится здесь. Статус и заметки правятся на карточке."
+          hint="Отметьте «Подался» в списке вакансий. Карточка с описанием и заметками открывается из таблицы."
         />
       ) : (
-        jobs.map((job) => (
-          <article key={job.id} className="card">
-            <div className="card-head">
-              <div>
-                <h3 className="card-title">
-                  <a href={job.url} target="_blank" rel="noreferrer">
-                    {job.title}
-                  </a>
-                </h3>
-                <p className="card-sub">
-                  {job.company}
-                  {job.location ? ` · ${job.location}` : ""}
-                </p>
-              </div>
-              <ScoreBadge score={job.score} />
-            </div>
-
-            <div className="applied-meta">
-              <Meta label="Опубликована" value={job.posted_at} />
-              <Meta label="Добавлена" value={job.first_seen_at} />
-              <Meta label="Обновлена" value={job.last_seen_at} />
-              <Meta label="Подался" value={job.applied_at} />
-            </div>
-
-            <div className="row">
-              {PIPE_ACTIONS.map((action) => (
-                <button
-                  key={action.status}
-                  className={`btn btn-sm ${job.status === action.status ? "btn-primary" : ""}`}
-                  onClick={() => void setPipeline(job, action.status)}
-                >
-                  {action.label}
-                </button>
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Вакансия</th>
+                <th className="col-company">Компания</th>
+                <th className="col-score">Score</th>
+                <th className="col-date">Опубликована</th>
+                <th className="col-date" title="Когда мы впервые увидели вакансию">
+                  Добавлена
+                </th>
+                <th className="col-date" title="Когда вакансия изменилась у источника">
+                  Обновлена
+                </th>
+                <th className="col-date" title="Когда вы отметили отклик">
+                  Подался
+                </th>
+                <th>Статус</th>
+                <th className="col-more" />
+              </tr>
+            </thead>
+            <tbody>
+              {jobs.map((job) => (
+                <tr key={job.id}>
+                  <td>
+                    <a href={job.url} target="_blank" rel="noreferrer">
+                      {job.title}
+                    </a>
+                    {job.location ? <div className="cell-sub">{job.location}</div> : null}
+                  </td>
+                  <td className="col-company">{job.company}</td>
+                  <td className="col-score">
+                    <ScoreBadge score={job.score} />
+                  </td>
+                  <td className="col-date">
+                    <Age value={job.posted_at ?? job.first_seen_at} />
+                  </td>
+                  <td className="col-date">
+                    <Age value={job.first_seen_at} warnAfter={14} />
+                  </td>
+                  <td className="col-date">
+                    <Age value={job.changed_at ?? job.first_seen_at} warnAfter={14} />
+                  </td>
+                  <td className="col-date">
+                    <Age value={job.applied_at} warnAfter={14} />
+                  </td>
+                  <td>
+                    <span className="badge badge-neutral">{pipeLabel(job.status)}</span>
+                  </td>
+                  <td className="col-more">
+                    <button className="btn btn-ghost btn-sm" onClick={() => void openCard(job)}>
+                      Карточка
+                    </button>
+                  </td>
+                </tr>
               ))}
-            </div>
-
-            {job.description ? (
-              <div className="job-description">{job.description}</div>
-            ) : (
-              <p className="muted">Описание не сохранилось — его не было в источнике или его отсекли до скоринга.</p>
-            )}
-
-            <Notes
-              job={job}
-              onSaved={(notes) =>
-                setJobs((prev) => prev?.map((item) => (item.id === job.id ? { ...item, notes } : item)) ?? null)
-              }
-            />
-          </article>
-        ))
+            </tbody>
+          </table>
+        </div>
       )}
     </>
   )

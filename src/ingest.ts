@@ -60,16 +60,32 @@ export async function runSource(env: Bindings, source: SourceRow): Promise<RunRe
       const opening = dedupKey(company, job.title) || null
       const existing = await env.DB.prepare(`SELECT id FROM jobs WHERE id = ?`).bind(id).first<{ id: string }>()
 
+      type TwinRow = {
+        id: string
+        kind: string
+        first_seen_at: string
+        applied_at: string | null
+        notes: string | null
+        status: string
+        score: number | null
+        score_reason: string | null
+        flags: string | null
+      }
+      let inherit: TwinRow | null = null
+
       // Same role already stored from another board or another geo posting.
       if (opening && !existing) {
         const twin = await env.DB.prepare(
-          `SELECT j.id, s.kind FROM jobs j JOIN sources s ON s.id = j.source_id
+          `SELECT j.id, s.kind, j.first_seen_at, j.applied_at, j.notes, j.status,
+                  j.score, j.score_reason, j.flags
+           FROM jobs j JOIN sources s ON s.id = j.source_id
            WHERE j.dedup_key = ? AND j.closed_at IS NULL LIMIT 1`,
         )
           .bind(opening)
-          .first<{ id: string; kind: string }>()
+          .first<TwinRow>()
         if (twin) {
           if (source.kind === "company" && twin.kind === "query") {
+            inherit = twin
             await env.DB.prepare(`DELETE FROM jobs WHERE id = ?`).bind(twin.id).run()
           } else {
             continue
@@ -80,15 +96,24 @@ export async function runSource(env: Bindings, source: SourceRow): Promise<RunRe
       if (!existing) jobsNew += 1
       const description = clipDescription(job.description) ?? null
       await env.DB.prepare(
-        `INSERT INTO jobs (id, source_id, external_id, company, company_key, title, location, url, description, posted_at, dedup_key, first_seen_at, last_seen_at, closed_at, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), NULL, 'new')
+        `INSERT INTO jobs (id, source_id, external_id, company, company_key, title, location, url, description, posted_at, dedup_key, first_seen_at, last_seen_at, changed_at, closed_at, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'), NULL, 'new')
          ON CONFLICT(id) DO UPDATE SET
            last_seen_at = datetime('now'),
            title = excluded.title,
            location = excluded.location,
            dedup_key = excluded.dedup_key,
            closed_at = NULL,
-           description = COALESCE(excluded.description, jobs.description)`,
+           posted_at = COALESCE(excluded.posted_at, jobs.posted_at),
+           description = COALESCE(excluded.description, jobs.description),
+           changed_at = CASE
+             WHEN excluded.title IS NOT jobs.title
+               OR IFNULL(excluded.location, '') IS NOT IFNULL(jobs.location, '')
+               OR (excluded.description IS NOT NULL AND excluded.description IS NOT IFNULL(jobs.description, ''))
+               OR (excluded.posted_at IS NOT NULL AND excluded.posted_at IS NOT IFNULL(jobs.posted_at, ''))
+             THEN datetime('now')
+             ELSE IFNULL(jobs.changed_at, jobs.first_seen_at)
+           END`,
       )
         .bind(
           id,
@@ -104,6 +129,39 @@ export async function runSource(env: Bindings, source: SourceRow): Promise<RunRe
           opening,
         )
         .run()
+
+      if (inherit) {
+        const keepUser =
+          inherit.status === "applied" ||
+          inherit.status === "interview" ||
+          inherit.status === "rejected" ||
+          inherit.status === "saved" ||
+          inherit.status === "ignored"
+        await env.DB.prepare(
+          `UPDATE jobs SET
+             first_seen_at = CASE WHEN ? < first_seen_at THEN ? ELSE first_seen_at END,
+             applied_at = COALESCE(?, applied_at),
+             notes = COALESCE(notes, ?),
+             status = CASE WHEN ? = 1 THEN ? ELSE status END,
+             score = COALESCE(score, ?),
+             score_reason = COALESCE(score_reason, ?),
+             flags = COALESCE(flags, ?)
+           WHERE id = ?`,
+        )
+          .bind(
+            inherit.first_seen_at,
+            inherit.first_seen_at,
+            inherit.applied_at,
+            inherit.notes,
+            keepUser ? 1 : 0,
+            inherit.status,
+            inherit.score,
+            inherit.score_reason,
+            inherit.flags,
+            id,
+          )
+          .run()
+      }
 
       if (source.kind === "query" && key && !watched.has(key)) {
         await env.DB.prepare(

@@ -56,6 +56,7 @@ export type JobRow = {
   status: string
   notes?: string | null
   applied_at?: string | null
+  changed_at?: string | null
   tier?: string
 }
 
