@@ -42,6 +42,7 @@ export function Explore({ onOpenJobs }: { onOpenJobs: (company: { company_key: s
   const [scan, setScan] = useState<RunState | null>(null)
   const [companies, setCompanies] = useState<ExploreCompany[] | null | undefined>(undefined)
   const [busy, setBusy] = useState<string | null>(null)
+  const [addingAll, setAddingAll] = useState<{ done: number; total: number } | null>(null)
   const [query, setQuery] = useState("")
   const [sort, setSort] = useState<SortKey>("jobs")
   const [dir, setDir] = useState<"asc" | "desc">("desc")
@@ -160,6 +161,44 @@ export function Explore({ onOpenJobs }: { onOpenJobs: (company: { company_key: s
     }
   }
 
+  async function trackAll(list: ExploreCompany[]) {
+    if (list.length === 0 || addingAll || launching) return
+    setAddingAll({ done: 0, total: list.length })
+    let added = 0
+    let skipped = 0
+    try {
+      for (const [index, company] of list.entries()) {
+        setBusy(company.company_key)
+        try {
+          const result = await api.addExplore(company.company_key)
+          if (result.added) {
+            added += 1
+            setCompanies((prev) => prev?.filter((item) => item.company_key !== company.company_key) ?? prev)
+          } else {
+            skipped += 1
+          }
+        } catch (error) {
+          if (error instanceof UnauthorizedError) throw error
+          skipped += 1
+        }
+        setAddingAll({ done: index + 1, total: list.length })
+      }
+      if (added) refresh()
+      notify(
+        skipped
+          ? `Добавлено ${added}, ATS не определился у ${skipped}`
+          : `Добавлено ${added} ${plural(added, ["компания", "компании", "компаний"])}`,
+        added ? "ok" : "error",
+      )
+    } catch (error) {
+      if (error instanceof UnauthorizedError) logout()
+      else notify(error instanceof Error ? error.message : String(error), "error")
+    } finally {
+      setBusy(null)
+      setAddingAll(null)
+    }
+  }
+
   function sortBy(column: SortKey) {
     if (sort === column) {
       setDir((prev) => (prev === "asc" ? "desc" : "asc"))
@@ -253,11 +292,22 @@ export function Explore({ onOpenJobs }: { onOpenJobs: (company: { company_key: s
               onChange={(event) => setQuery(event.target.value)}
             />
           </div>
-          <p className="muted">
-            {rows.length} {plural(rows.length, ["компания", "компании", "компаний"])}
-            {rows.length !== companies.length ? ` из ${companies.length}` : ""}
-            {" · "}уже в источниках скрыты
-          </p>
+          <div className="row">
+            <p className="muted">
+              {rows.length} {plural(rows.length, ["компания", "компании", "компаний"])}
+              {rows.length !== companies.length ? ` из ${companies.length}` : ""}
+              {" · "}уже в источниках скрыты
+              {addingAll ? ` · добавляю ${addingAll.done} из ${addingAll.total}` : ""}
+            </p>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={Boolean(addingAll || launching || busy || rows.length === 0)}
+              onClick={() => void trackAll(rows)}
+            >
+              {addingAll ? "Добавляю…" : "Добавить все"}
+            </button>
+          </div>
           <div className="table-wrap">
             <table className="table">
               <thead>
@@ -304,7 +354,7 @@ export function Explore({ onOpenJobs }: { onOpenJobs: (company: { company_key: s
                         ) : null}
                         <button
                           className="btn btn-primary btn-sm"
-                          disabled={busy === company.company_key || launching}
+                          disabled={Boolean(busy || launching || addingAll)}
                           onClick={() => void track(company)}
                         >
                           Добавить
