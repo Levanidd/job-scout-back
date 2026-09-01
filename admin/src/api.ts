@@ -1,5 +1,6 @@
 import type {
   BulkDetectResult,
+  Cycle,
   CompanyFacet,
   DetectResult,
   DiscoveredCompany,
@@ -8,7 +9,6 @@ import type {
   Job,
   JobStatus,
   ModelOption,
-  PlannedSource,
   RunResult,
   Settings,
   Source,
@@ -191,16 +191,12 @@ export const api = {
     return post(`/sources/${id}/run${options.score === false ? "?score=0" : ""}`)
   },
 
-  runPlan(): Promise<{ sources: PlannedSource[] }> {
-    return request("/run/plan")
+  cycle(): Promise<Cycle> {
+    return request("/run")
   },
 
-  score(limit?: number): Promise<{ scored: number; remaining: number }> {
-    return post("/score", limit ? { limit } : undefined)
-  },
-
-  sendDigest(): Promise<{ notified: number }> {
-    return post("/notify")
+  startCycle(): Promise<Cycle> {
+    return post("/run")
   },
 
   detect(url: string): Promise<DetectResult> {

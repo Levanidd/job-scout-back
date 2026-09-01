@@ -10,6 +10,7 @@ import { Jobs } from "./screens/Jobs"
 import { Profile } from "./screens/Profile"
 import { Sources } from "./screens/Sources"
 import { TokenGate } from "./screens/TokenGate"
+import type { Cycle } from "./types"
 
 type TabId = "discovery" | "explore" | "jobs" | "sources" | "profile"
 
@@ -23,8 +24,36 @@ const TABS: Array<{ id: TabId; label: string; icon: ComponentType<{ className?: 
 
 type Toast = { message: string; kind: ToastKind }
 
-/** Jobs per scoring request: three Gemini batches, small enough to feel live. */
-const SCORE_CHUNK = 30
+const STALE_MS = 150_000
+
+function toRunState(cycle: Cycle): RunState {
+  return {
+    phase: cycle.phase,
+    done: cycle.done,
+    total: cycle.total,
+    current: cycle.current,
+    currentId: cycle.current_id,
+    found: cycle.found,
+    fresh: cycle.fresh,
+    failed: cycle.failed,
+  }
+}
+
+function isStale(updatedAt: string | null): boolean {
+  if (!updatedAt) return true
+  const iso = updatedAt.includes("T") ? updatedAt : `${updatedAt.replace(" ", "T")}Z`
+  const ms = Date.parse(iso)
+  return Number.isNaN(ms) || Date.now() - ms > STALE_MS
+}
+
+function doneMessage(cycle: Cycle): string {
+  if (cycle.source_total === 0) {
+    return cycle.scored || cycle.notified
+      ? `Источники за последние 3 часа уже пройдены. Оценено ${cycle.scored}, отправлено ${cycle.notified}`
+      : "Источники за последние 3 часа уже пройдены. Повторный обход — позже или по кнопке на карточке источника."
+  }
+  return `Источников ${cycle.source_total}, вакансий ${cycle.found} (новых ${cycle.fresh}), оценено ${cycle.scored}, отправлено ${cycle.notified}`
+}
 
 export default function App() {
   const [authorized, setAuthorized] = useState(() => Boolean(getToken()))
@@ -38,6 +67,8 @@ export default function App() {
   const [refreshTick, setRefreshTick] = useState(0)
   const [sourcesTick, setSourcesTick] = useState(0)
   const timer = useRef<number | undefined>(undefined)
+  const seenRunning = useRef(false)
+  const lastSourceDone = useRef(-1)
 
   const notify = useCallback((message: string, kind: ToastKind = "ok") => {
     setToast({ message, kind })
@@ -50,7 +81,71 @@ export default function App() {
     setAuthorized(false)
   }, [])
 
+  const finishCycle = useCallback(
+    (cycle: Cycle) => {
+      const watched = seenRunning.current
+      seenRunning.current = false
+      setRunning(false)
+      setRun(null)
+      if (watched && cycle.status === "done") {
+        notify(doneMessage(cycle), "ok")
+        setRefreshTick((n) => n + 1)
+        setSourcesTick((n) => n + 1)
+      } else if (watched && cycle.status === "error") {
+        notify(cycle.error || "Прогон оборвался", "error")
+      }
+    },
+    [notify],
+  )
+
+  const applyCycle = useCallback(
+    (cycle: Cycle) => {
+      if (cycle.status === "running") {
+        seenRunning.current = true
+        setRunning(true)
+        setRun(toRunState(cycle))
+        if (cycle.phase === "sources" && cycle.done !== lastSourceDone.current) {
+          lastSourceDone.current = cycle.done
+          setSourcesTick((n) => n + 1)
+        }
+        return
+      }
+      finishCycle(cycle)
+    },
+    [finishCycle],
+  )
+
   useEffect(() => () => window.clearTimeout(timer.current), [])
+
+  useEffect(() => {
+    if (!authorized) return
+    void (async () => {
+      try {
+        const cycle = await api.cycle()
+        applyCycle(cycle)
+      } catch (error) {
+        if (error instanceof UnauthorizedError) logout()
+      }
+    })()
+  }, [authorized, applyCycle, logout])
+
+  useEffect(() => {
+    if (!authorized || !running) return
+    const id = window.setInterval(() => {
+      void (async () => {
+        try {
+          const cycle = await api.cycle()
+          applyCycle(cycle)
+          if (cycle.status === "running" && isStale(cycle.updated_at)) {
+            applyCycle(await api.startCycle())
+          }
+        } catch (error) {
+          if (error instanceof UnauthorizedError) logout()
+        }
+      })()
+    }, 1500)
+    return () => window.clearInterval(id)
+  }, [authorized, running, applyCycle, logout])
 
   function openCompanyJobs(company: { company_key: string }) {
     setPreset((prev) => ({
@@ -74,66 +169,13 @@ export default function App() {
     [notify, logout, refreshTick, sourcesTick, run?.currentId, running],
   )
 
-  /**
-   * The cycle is driven from here, one source at a time, so the page can say
-   * where it is. Each step is its own request, which also keeps a long run from
-   * spending a single worker's subrequest budget on everything at once.
-   */
-  async function runCycle() {
-    setRunning(true)
-    setRun({ phase: "sources", done: 0, total: 0, current: "", currentId: null, found: 0, fresh: 0, failed: 0 })
+  async function startCycle() {
     try {
-      const plan = await api.runPlan()
-      let found = 0
-      let fresh = 0
-      let failed = 0
-      setRun((prev) => prev && { ...prev, total: plan.sources.length })
-      if (plan.sources.length === 0) {
-        setRun((prev) => prev && { ...prev, phase: "scoring", current: "", currentId: null })
-      }
-
-      for (const [index, source] of plan.sources.entries()) {
-        setRun((prev) => prev && { ...prev, done: index, current: source.label, currentId: source.id })
-        try {
-          const result = await api.runSource(source.id, { score: false })
-          found += result.run.jobs_found
-          fresh += result.run.jobs_new
-          if (!result.run.ok) failed += 1
-        } catch (error) {
-          if (error instanceof UnauthorizedError) throw error
-          failed += 1
-        }
-        setSourcesTick((n) => n + 1)
-        setRun((prev) => prev && { ...prev, done: index + 1, found, fresh, failed })
-      }
-
-      let scored = 0
-      setRun((prev) => prev && { ...prev, phase: "scoring", done: 0, total: 0, current: "", currentId: null })
-      for (;;) {
-        const step = await api.score(SCORE_CHUNK)
-        scored += step.scored
-        setRun((prev) => prev && { ...prev, done: scored, total: scored + step.remaining })
-        if (step.remaining === 0 || step.scored === 0) break
-      }
-
-      setRun((prev) => prev && { ...prev, phase: "digest", done: 0, total: 0, current: "", currentId: null })
-      const digest = await api.sendDigest()
-
-      notify(
-        plan.sources.length === 0
-          ? scored || digest.notified
-            ? `Источники за последние 3 часа уже пройдены. Оценено ${scored}, отправлено ${digest.notified}`
-            : "Источники за последние 3 часа уже пройдены. Повторный обход — позже или по кнопке на карточке источника."
-          : `Источников ${plan.sources.length}, вакансий ${found} (новых ${fresh}), оценено ${scored}, отправлено ${digest.notified}`,
-        "ok",
-      )
+      lastSourceDone.current = -1
+      applyCycle(await api.startCycle())
     } catch (error) {
       if (error instanceof UnauthorizedError) logout()
       else notify(error instanceof Error ? error.message : String(error), "error")
-    } finally {
-      setRunning(false)
-      setRun(null)
-      setRefreshTick((n) => n + 1)
     }
   }
 
@@ -150,8 +192,8 @@ export default function App() {
             <button
               className="btn btn-primary btn-sm"
               disabled={running}
-              title="Пропускает доски, которые успешно прошли за последние 3 часа"
-              onClick={() => void runCycle()}
+              title="Идёт на сервере. Пропускает доски, которые успешно прошли за последние 3 часа"
+              onClick={() => void startCycle()}
             >
               {running ? "Идёт прогон…" : "Прогнать"}
             </button>

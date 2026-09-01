@@ -125,8 +125,23 @@ export type PlannedSource = {
   tier: Tier
 }
 
-export type CycleResult = {
-  runs: RunResult[]
+export type CycleStatus = "idle" | "running" | "done" | "error"
+
+export type CyclePhase = "sources" | "scoring" | "digest"
+
+export type Cycle = {
+  status: CycleStatus
+  phase: CyclePhase
+  done: number
+  total: number
+  source_total: number
+  current: string
+  current_id: number | null
+  found: number
+  fresh: number
+  failed: number
   scored: number
   notified: number
+  error: string | null
+  updated_at: string | null
 }

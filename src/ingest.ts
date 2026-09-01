@@ -452,18 +452,6 @@ export async function pickSources(env: Bindings): Promise<SourceRow[]> {
   return loadDueSources(env.DB)
 }
 
-export async function runCycle(env: Bindings): Promise<{ runs: RunResult[]; scored: number; notified: number }> {
-  // Cron shares one Worker budget; the admin walks every due source itself.
-  const selected = (await pickSources(env)).slice(0, 14)
-  const runs: RunResult[] = []
-  for (const source of selected) {
-    runs.push(await runSource(env, source))
-  }
-  const { scored } = await prefilterAndScore(env)
-  const notified = await notifyNew(env)
-  return { runs, scored, notified }
-}
-
 export async function addDiscovered(env: Bindings, key: string): Promise<{ added: boolean; ats: string | null }> {
   const row = await env.DB.prepare(`SELECT * FROM discovered_companies WHERE company_key = ?`).bind(key).first<{
     company: string

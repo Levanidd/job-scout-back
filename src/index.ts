@@ -2,7 +2,8 @@ import { Hono, type Context } from "hono"
 import { cors } from "hono/cors"
 
 import { adapters } from "./adapters"
-import { addDiscovered, notifyNew, pickSources, prefilterAndScore, runCycle, runSource, scoreJobsByIds, scoreOneJob, trackedCompanyKeys } from "./ingest"
+import { addDiscovered, notifyNew, pickSources, prefilterAndScore, runSource, scoreJobsByIds, scoreOneJob, trackedCompanyKeys } from "./ingest"
+import { enqueueTick, loadCycleView, requestOrigin, startCycle, tickOnce } from "./cycle"
 import { detectUrl } from "./detect"
 import { ensureExploreSources, listExploreBoards } from "./explore"
 import { isThinkingLevel, listModels, validateModel, type ThinkingLevel } from "./scoring"
@@ -437,14 +438,23 @@ app.put("/api/settings", async (c) => {
   return c.json(await settingsView(c.env))
 })
 
+app.get("/api/run", async (c) => c.json(await loadCycleView(c.env)))
+
 app.post("/api/run", async (c) => {
-  const result = await runCycle(c.env)
-  return c.json(result)
+  const origin = requestOrigin(c.req.url)
+  const cycle = await startCycle(c.env, origin)
+  enqueueTick(c.env, origin, c.executionCtx)
+  return c.json(cycle)
 })
 
-// The three steps of a cycle, exposed separately so the admin can drive them
-// one at a time and show where the run currently is. Splitting also gives each
-// step its own subrequest budget, which one long request would have to share.
+app.post("/api/run/tick", async (c) => {
+  const more = await tickOnce(c.env)
+  if (more) enqueueTick(c.env, requestOrigin(c.req.url), c.executionCtx)
+  return c.json({ ok: true, more })
+})
+
+// The three steps of a cycle, exposed separately so a single source can still
+// be run from its card without starting the whole walk.
 app.get("/api/run/plan", async (c) => {
   const sources = await pickSources(c.env)
   return c.json({
@@ -484,10 +494,17 @@ app.get("/", (c) =>
 
 app.all("*", (c) => c.json({ error: "not found" }, 404))
 
-// Kept wired for the day cron comes back; wrangler.toml currently schedules nothing.
+// Cron is off; if it comes back, walk the same hop machine the admin starts.
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledEvent, env: Bindings, ctx: ExecutionContext) {
-    ctx.waitUntil(runCycle(env).then(() => undefined))
+    ctx.waitUntil(
+      (async () => {
+        await startCycle(env)
+        while (await tickOnce(env)) {
+          /* each hop is one source or one scoring chunk */
+        }
+      })(),
+    )
   },
 }

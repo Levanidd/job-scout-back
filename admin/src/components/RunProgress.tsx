@@ -18,8 +18,8 @@ const TITLES: Record<RunPhase, string> = {
 }
 
 const HINTS: Record<RunPhase, string> = {
-  sources: "читаю доски",
-  scoring: "модель читает описания",
+  sources: "читаю доски — страницу можно закрыть",
+  scoring: "модель читает описания — страницу можно закрыть",
   digest: "собираю сообщение в Telegram",
 }
 
@@ -46,6 +46,7 @@ export function RunProgress({ state }: { state: RunState }) {
       <p className="muted">
         Вакансий {state.found}, из них новых {state.fresh}
         {state.failed > 0 ? ` · источников с ошибкой: ${state.failed}` : ""}
+        {" · прогон на сервере, вкладку можно закрыть"}
       </p>
     </article>
   )
