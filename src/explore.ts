@@ -54,9 +54,14 @@ export type ExploreBoardView = {
 export async function listExploreBoards(db: D1Database): Promise<ExploreBoardView[]> {
   const rows = await db
     .prepare(
-      `SELECT s.provider, s.id, s.label, s.enabled,
-         (SELECT COUNT(*) FROM jobs j WHERE j.source_id = s.id AND j.closed_at IS NULL) AS jobs
+      `SELECT s.provider, s.id, s.label, s.enabled, COALESCE(j.jobs, 0) AS jobs
        FROM sources s
+       LEFT JOIN (
+         SELECT source_id, COUNT(*) AS jobs
+         FROM jobs
+         WHERE closed_at IS NULL
+         GROUP BY source_id
+       ) j ON j.source_id = s.id
        WHERE s.deleted_at IS NULL AND s.kind = 'query'
        ORDER BY s.provider, s.label`,
     )

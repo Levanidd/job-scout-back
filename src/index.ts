@@ -32,14 +32,26 @@ app.get("/api/sources", async (c) => {
   const rows = await c.env.DB.prepare(
     `SELECT s.id, s.kind, s.tier, s.label, s.provider, s.token, s.careers_url, s.enabled,
        s.last_count, s.bootstrapped, s.deleted_at, s.created_at,
-       COALESCE(s.last_run_at, (SELECT MAX(j.last_seen_at) FROM jobs j WHERE j.source_id = s.id)) AS last_run_at,
-       (SELECT COUNT(*) FROM jobs j WHERE j.source_id = s.id AND j.closed_at IS NULL) AS active_jobs,
-       (SELECT error FROM source_runs r WHERE r.source_id = s.id ORDER BY r.id DESC LIMIT 1) AS last_error,
-       COALESCE(
-         (SELECT ok FROM source_runs r WHERE r.source_id = s.id ORDER BY r.id DESC LIMIT 1),
-         CASE WHEN EXISTS (SELECT 1 FROM jobs j WHERE j.source_id = s.id) THEN 1 END
-       ) AS last_ok
-     FROM sources s WHERE s.deleted_at IS NULL ORDER BY s.created_at DESC, s.id DESC`,
+       COALESCE(s.last_run_at, j.last_seen_at) AS last_run_at,
+       COALESCE(j.active_jobs, 0) AS active_jobs,
+       r.error AS last_error,
+       COALESCE(r.ok, CASE WHEN j.source_id IS NOT NULL THEN 1 END) AS last_ok
+     FROM sources s
+     LEFT JOIN (
+       SELECT source_id,
+         SUM(CASE WHEN closed_at IS NULL THEN 1 ELSE 0 END) AS active_jobs,
+         MAX(last_seen_at) AS last_seen_at
+       FROM jobs
+       GROUP BY source_id
+     ) j ON j.source_id = s.id
+     LEFT JOIN (
+       SELECT r.source_id, r.error, r.ok
+       FROM source_runs r
+       JOIN (SELECT source_id, MAX(id) AS id FROM source_runs GROUP BY source_id) latest
+         ON latest.id = r.id
+     ) r ON r.source_id = s.id
+     WHERE s.deleted_at IS NULL
+     ORDER BY s.created_at DESC, s.id DESC`,
   ).all()
   return c.json({ sources: rows.results })
 })
@@ -136,11 +148,16 @@ app.post("/api/sources/bulk-detect", async (c) => {
 
 app.get("/api/discovered", async (c) => {
   const state = c.req.query("state") ?? ""
-  // `hits` counts every pass of the ingest over a posting, not the postings
-  // themselves, so the table shows what is actually stored and openable.
-  let sql = `SELECT d.*,
-       (SELECT COUNT(*) FROM jobs j WHERE j.company_key = d.company_key AND j.closed_at IS NULL) AS jobs_open
-     FROM discovered_companies d`
+  // One jobs scan instead of a count per company — the correlated version
+  // burned D1's free daily row-read quota on a single Discovery load.
+  let sql = `SELECT d.*, COALESCE(c.jobs_open, 0) AS jobs_open
+     FROM discovered_companies d
+     LEFT JOIN (
+       SELECT company_key, COUNT(*) AS jobs_open
+       FROM jobs
+       WHERE closed_at IS NULL
+       GROUP BY company_key
+     ) c ON c.company_key = d.company_key`
   const binds: string[] = []
   if (state && state !== "all") {
     sql += " WHERE d.state = ?"
@@ -186,29 +203,30 @@ app.get("/api/explore", async (c) => {
 
   const placeholders = providers.map(() => "?").join(", ")
   const rows = await c.env.DB.prepare(
-    `SELECT j.company_key AS company_key,
-       MIN(j.company) AS company,
+    `WITH ranked AS (
+       SELECT j.company_key, j.company, j.url, j.score, s.provider,
+         ROW_NUMBER() OVER (
+           PARTITION BY j.company_key
+           ORDER BY j.score DESC NULLS LAST, j.first_seen_at DESC
+         ) AS rn
+       FROM jobs j
+       JOIN sources s ON s.id = j.source_id
+       WHERE j.closed_at IS NULL AND s.kind = 'query' AND s.deleted_at IS NULL
+         AND s.provider IN (${placeholders})
+         AND j.company_key IS NOT NULL AND j.company_key != ''
+     )
+     SELECT company_key,
+       MIN(company) AS company,
        COUNT(*) AS jobs,
-       MAX(j.score) AS best_score,
-       (
-         SELECT j2.url FROM jobs j2
-         JOIN sources s2 ON s2.id = j2.source_id
-         WHERE j2.company_key = j.company_key AND j2.closed_at IS NULL
-           AND s2.kind = 'query' AND s2.provider IN (${placeholders})
-         ORDER BY j2.score DESC NULLS LAST, j2.first_seen_at DESC
-         LIMIT 1
-       ) AS sample_url,
-       GROUP_CONCAT(DISTINCT s.provider) AS providers
-     FROM jobs j
-     JOIN sources s ON s.id = j.source_id
-     WHERE j.closed_at IS NULL AND s.kind = 'query' AND s.deleted_at IS NULL
-       AND s.provider IN (${placeholders})
-       AND j.company_key IS NOT NULL AND j.company_key != ''
-     GROUP BY j.company_key
+       MAX(score) AS best_score,
+       MAX(CASE WHEN rn = 1 THEN url END) AS sample_url,
+       GROUP_CONCAT(DISTINCT provider) AS providers
+     FROM ranked
+     GROUP BY company_key
      ORDER BY best_score DESC NULLS LAST, jobs DESC
      LIMIT 800`,
   )
-    .bind(...providers, ...providers)
+    .bind(...providers)
     .all<{
       company_key: string
       company: string
@@ -582,6 +600,20 @@ app.get("/", (c) =>
 )
 
 app.all("*", (c) => c.json({ error: "not found" }, 404))
+
+app.onError((err, c) => {
+  const message = err instanceof Error ? err.message : String(err)
+  if (/row read limit|exceeded D1/i.test(message)) {
+    return c.json(
+      {
+        error:
+          "D1 исчерпала дневной лимит чтения. Данные на месте — снова заработает после полуночи UTC (02:00). Пока не запускай прогон.",
+      },
+      503,
+    )
+  }
+  return c.json({ error: message }, 500)
+})
 
 // Cron is off; if it comes back, walk the same hop machine the admin starts.
 export default {
