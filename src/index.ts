@@ -2,12 +2,12 @@ import { Hono, type Context } from "hono"
 import { cors } from "hono/cors"
 
 import { adapters } from "./adapters"
-import { addDiscovered, notifyNew, pickSources, prefilterAndScore, runSource, scoreJobsByIds, scoreOneJob, trackedCompanyKeys } from "./ingest"
+import { addDiscovered, notifyNew, pickSources, prefilterAndScore, reapplyPrefilter, runSource, scoreJobsByIds, scoreOneJob, trackedCompanyKeys } from "./ingest"
 import { enqueueTick, loadCycleView, requestOrigin, startCycle, tickOnce } from "./cycle"
 import { detectUrl } from "./detect"
 import { ensureExploreSources, listExploreBoards } from "./explore"
 import { isThinkingLevel, listModels, validateModel, type ThinkingLevel } from "./scoring"
-import { SETTING_MODEL, SETTING_THINKING, settingsView, writeSetting } from "./settings"
+import { SETTING_MODEL, SETTING_THINKING, resolvePrefilter, settingsView, writePrefilter, writeSetting } from "./settings"
 import type { Bindings, SourceRow } from "./types"
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -450,15 +450,37 @@ app.post("/api/jobs/:id/score", async (c) => {
 
 app.get("/api/profile", async (c) => {
   const row = await c.env.DB.prepare(`SELECT content FROM profile WHERE id = 1`).first<{ content: string }>()
-  return c.json({ content: row?.content ?? "" })
+  return c.json({ content: row?.content ?? "", prefilter: await resolvePrefilter(c.env) })
 })
 
 app.put("/api/profile", async (c) => {
-  const body = await c.req.json<{ content: string }>()
-  await c.env.DB.prepare(`INSERT INTO profile (id, content) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET content = excluded.content`)
-    .bind(body.content)
-    .run()
-  return c.json({ ok: true })
+  const body = await c.req.json<{
+    content?: string
+    prefilter?: { keep?: unknown; drop?: unknown }
+  }>()
+  if (typeof body.content !== "string" && !body.prefilter) {
+    return c.json({ error: "content or prefilter required" }, 400)
+  }
+
+  if (typeof body.content === "string") {
+    await c.env.DB.prepare(
+      `INSERT INTO profile (id, content) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET content = excluded.content`,
+    )
+      .bind(body.content)
+      .run()
+  }
+
+  let prefilter = await resolvePrefilter(c.env)
+  let applied: { dropped: number; restored: number } | undefined
+  if (body.prefilter) {
+    prefilter = await writePrefilter(c.env, {
+      keep: Array.isArray(body.prefilter.keep) ? body.prefilter.keep.map(String) : prefilter.keep,
+      drop: Array.isArray(body.prefilter.drop) ? body.prefilter.drop.map(String) : prefilter.drop,
+    })
+    applied = await reapplyPrefilter(c.env)
+  }
+
+  return c.json({ ok: true, prefilter, applied })
 })
 
 app.post("/api/profile/rescore", async (c) => {

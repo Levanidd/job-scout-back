@@ -10,6 +10,7 @@ import type {
   JobStatus,
   ModelOption,
   RunResult,
+  PrefilterRules,
   Settings,
   Source,
   ThinkingLevel,
@@ -236,12 +237,20 @@ export const api = {
     return post("/sources/bulk-detect", { urls })
   },
 
-  profile(): Promise<{ content: string }> {
+  profile(): Promise<{ content: string; prefilter?: PrefilterRules }> {
     return request("/profile")
   },
 
-  saveProfile(content: string): Promise<{ ok: true }> {
+  saveProfile(content: string): Promise<{ ok: true; prefilter?: PrefilterRules }> {
     return request("/profile", { method: "PUT", body: JSON.stringify({ content }) })
+  },
+
+  savePrefilter(prefilter: PrefilterRules): Promise<{
+    ok: true
+    prefilter: PrefilterRules
+    applied?: { dropped: number; restored: number }
+  }> {
+    return request("/profile", { method: "PUT", body: JSON.stringify({ prefilter }) })
   },
 
   rescore(): Promise<{ ok: true; scored: number }> {

@@ -1,4 +1,9 @@
 import {
+  DEFAULT_PREFILTER,
+  sanitizeTags,
+  type PrefilterRules,
+} from "./prefilter"
+import {
   DEFAULT_MODEL,
   DEFAULT_THINKING_LEVEL,
   isThinkingLevel,
@@ -9,6 +14,8 @@ import type { Bindings } from "./types"
 
 export const SETTING_MODEL = "gemini_model"
 export const SETTING_THINKING = "gemini_thinking_level"
+export const SETTING_PREFILTER_KEEP = "prefilter_keep"
+export const SETTING_PREFILTER_DROP = "prefilter_drop"
 
 async function read(env: Bindings, key: string): Promise<string | null> {
   const row = await env.DB.prepare(`SELECT value FROM settings WHERE key = ?`).bind(key).first<{ value: string }>()
@@ -22,6 +29,38 @@ export async function writeSetting(env: Bindings, key: string, value: string): P
   )
     .bind(key, value)
     .run()
+}
+
+function parseTagSetting(raw: string | null, fallback: string[]): string[] {
+  if (!raw) return fallback
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    const tags = sanitizeTags(parsed)
+    return tags.length > 0 || Array.isArray(parsed) ? tags : fallback
+  } catch {
+    return fallback
+  }
+}
+
+export async function resolvePrefilter(env: Bindings): Promise<PrefilterRules> {
+  const [keepRaw, dropRaw] = await Promise.all([
+    read(env, SETTING_PREFILTER_KEEP),
+    read(env, SETTING_PREFILTER_DROP),
+  ])
+  return {
+    keep: parseTagSetting(keepRaw, DEFAULT_PREFILTER.keep),
+    drop: parseTagSetting(dropRaw, DEFAULT_PREFILTER.drop),
+  }
+}
+
+export async function writePrefilter(env: Bindings, rules: PrefilterRules): Promise<PrefilterRules> {
+  const keep = sanitizeTags(rules.keep)
+  const drop = sanitizeTags(rules.drop)
+  await Promise.all([
+    writeSetting(env, SETTING_PREFILTER_KEEP, JSON.stringify(keep)),
+    writeSetting(env, SETTING_PREFILTER_DROP, JSON.stringify(drop)),
+  ])
+  return { keep, drop }
 }
 
 /** DB wins over the GEMINI_MODEL secret so the model stays changeable from the admin. */

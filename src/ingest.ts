@@ -4,7 +4,7 @@ import { detectUrl } from "./detect"
 import { renderDigest, sendTelegram } from "./notify"
 import { clipDescription, passesPrefilter } from "./prefilter"
 import { scoreInBatches, scoreJobs, type ScoreInput } from "./scoring"
-import { resolveScoringConfig } from "./settings"
+import { resolvePrefilter, resolveScoringConfig } from "./settings"
 import type { Bindings, SourceRow } from "./types"
 
 type RunResult = {
@@ -282,6 +282,7 @@ export async function prefilterAndScore(
 
   const profileRow = await env.DB.prepare(`SELECT content FROM profile WHERE id = 1`).first<{ content: string }>()
   const profile = profileRow?.content ?? ""
+  const rules = await resolvePrefilter(env)
 
   // A role we already judged on one board is the same role on the next one, so
   // its verdict carries over instead of being bought again.
@@ -307,7 +308,7 @@ export async function prefilterAndScore(
 
   for (const job of open.results) {
     if (job.status === "ignored" || job.status === "rejected" || job.status === "off_profile") continue
-    if (!passesPrefilter(job.title)) {
+    if (!passesPrefilter(job.title, rules)) {
       // Kept out of the scoring queue but not out of sight: the title says the
       // role is not ours, and the description is dropped because nothing reads it.
       await env.DB.prepare(
@@ -386,6 +387,51 @@ export async function prefilterAndScore(
   }
 
   return { scored: scores.length, remaining }
+}
+
+const ID_CHUNK = 40
+
+async function updateIds(env: Bindings, ids: string[], sql: string): Promise<void> {
+  for (let i = 0; i < ids.length; i += ID_CHUNK) {
+    const chunk = ids.slice(i, i + ID_CHUNK)
+    await env.DB.prepare(`${sql} (${chunk.map(() => "?").join(", ")})`)
+      .bind(...chunk)
+      .run()
+  }
+}
+
+/**
+ * Re-runs the title tags against open jobs after the user edits keep/drop.
+ * Leaves saved / applied / ignored rows alone — those are a human decision.
+ */
+export async function reapplyPrefilter(
+  env: Bindings,
+): Promise<{ dropped: number; restored: number }> {
+  const rules = await resolvePrefilter(env)
+  const rows = await env.DB.prepare(
+    `SELECT id, title, status FROM jobs
+     WHERE closed_at IS NULL AND status IN ('new', 'notified', 'off_profile')`,
+  ).all<{ id: string; title: string; status: string }>()
+
+  const drop: string[] = []
+  const restore: string[] = []
+  for (const row of rows.results) {
+    const pass = passesPrefilter(row.title, rules)
+    if (!pass && row.status !== "off_profile") drop.push(row.id)
+    else if (pass && row.status === "off_profile") restore.push(row.id)
+  }
+
+  await updateIds(
+    env,
+    drop,
+    `UPDATE jobs SET score = 0, score_reason = 'prefilter', flags = '[]', status = 'off_profile', description = NULL WHERE id IN`,
+  )
+  await updateIds(
+    env,
+    restore,
+    `UPDATE jobs SET score = NULL, score_reason = NULL, flags = NULL, status = 'new' WHERE status = 'off_profile' AND id IN`,
+  )
+  return { dropped: drop.length, restored: restore.length }
 }
 
 export type ScoredJob = {

@@ -416,7 +416,7 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
                           {job.score_reason ? (
                             <p className="muted">
                               {job.score_reason === "prefilter"
-                                ? "Отсеяна по названию: роль не из продуктового списка, в скоринг не попала"
+                                ? "Отсеяна по названию: не прошла теги префильтра, в скоринг не попала"
                                 : job.score_reason}
                             </p>
                           ) : null}

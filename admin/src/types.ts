@@ -116,6 +116,11 @@ export type Settings = {
   key_configured: boolean
 }
 
+export type PrefilterRules = {
+  keep: string[]
+  drop: string[]
+}
+
 export type RunResult = {
   source_id: number
   ok: boolean

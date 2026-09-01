@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import { companyKey } from "../src/company-key"
 import { isSuspicious } from "../src/ingest"
-import { passesPrefilter } from "../src/prefilter"
+import { passesPrefilter, sanitizeTags } from "../src/prefilter"
 import { formatSalary, toSalary } from "../src/salary"
 import { localScore } from "../src/scoring"
 
@@ -19,6 +19,26 @@ describe("prefilter", () => {
     expect(passesPrefilter("Senior Product Manager")).toBe(true)
     expect(passesPrefilter("Werkstudent Produktmanagement")).toBe(false)
     expect(passesPrefilter("Backend Engineer")).toBe(false)
+  })
+
+  it("ignores case and extra whitespace", () => {
+    expect(passesPrefilter("  SENIOR   PRODUCT   MANAGER  ")).toBe(true)
+    expect(passesPrefilter("Ai  Product Lead", { keep: ["ai product"], drop: [] })).toBe(true)
+  })
+
+  it("uses the supplied keep and drop tags", () => {
+    const rules = { keep: ["Produktmanager"], drop: ["Werkstudent"] }
+    expect(passesPrefilter("Senior Produktmanager", rules)).toBe(true)
+    expect(passesPrefilter("Werkstudent Produktmanager", rules)).toBe(false)
+    expect(passesPrefilter("Backend Engineer", rules)).toBe(false)
+  })
+
+  it("rejects everything when keep is empty", () => {
+    expect(passesPrefilter("Senior Product Manager", { keep: [], drop: [] })).toBe(false)
+  })
+
+  it("collapses duplicates and extra spaces in tags", () => {
+    expect(sanitizeTags(["  Product   Manager  ", "product manager", "", 12])).toEqual(["Product Manager"])
   })
 })
 
