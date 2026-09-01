@@ -3,7 +3,7 @@ import { cors } from "hono/cors"
 
 import { adapters } from "./adapters"
 import { addDiscovered, notifyNew, pickSources, prefilterAndScore, reapplyPrefilter, runSource, scoreJobsByIds, scoreOneJob, trackedCompanyKeys } from "./ingest"
-import { enqueueTick, loadCycleView, requestOrigin, startCycle, tickOnce } from "./cycle"
+import { enqueueTick, loadCycleView, requestOrigin, startCycle, tickOnce, walkCycle } from "./cycle"
 import { detectUrl } from "./detect"
 import { ensureExploreSources, listExploreBoards } from "./explore"
 import { isThinkingLevel, listModels, validateModel, type ThinkingLevel } from "./scoring"
@@ -590,9 +590,7 @@ export default {
     ctx.waitUntil(
       (async () => {
         await startCycle(env)
-        while (await tickOnce(env)) {
-          /* each hop is one source or one scoring chunk */
-        }
+        await walkCycle(env)
       })(),
     )
   },

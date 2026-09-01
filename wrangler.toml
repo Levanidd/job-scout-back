@@ -4,23 +4,16 @@ compatibility_date = "2026-08-01"
 compatibility_flags = ["nodejs_compat"]
 
 # Assets are matched first; anything without a file match (i.e. /api/*) hits the Worker.
-# /api/* always runs the script so a self-tick cannot be swallowed by the asset router.
 [assets]
 directory = "./admin/dist"
-run_worker_first = ["/api/*"]
 
 [[d1_databases]]
 binding = "DB"
 database_name = "job-scout"
 database_id = "111a2873-66df-4e82-850f-4b812282577e"
 
-# Self-binding so cycle hops do not fetch the public workers.dev URL (Cloudflare 1042).
-[[services]]
-binding = "SELF"
-service = "jobradar"
-
 # Manual runs only: the admin "Прогнать" button hits POST /api/run, then the
-# Worker chains /api/run/tick so the browser tab does not have to stay open.
+# Worker continues in waitUntil so the browser tab does not have to stay open.
 [triggers]
 crons = []
 
