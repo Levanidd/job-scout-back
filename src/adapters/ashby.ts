@@ -1,6 +1,30 @@
 import { asArray, asRecord, fetchJson, str } from "../http"
 import { clipDescription } from "../prefilter"
-import type { Adapter, RawJob } from "../types"
+import { toSalary } from "../salary"
+import type { Adapter, RawJob, Salary } from "../types"
+
+function ashbySalary(row: Record<string, unknown>): Salary | undefined {
+  const compensation = asRecord(row.compensation)
+  if (!compensation) return undefined
+  for (const tier of asArray(compensation.compensationTiers)) {
+    const item = asRecord(tier)
+    if (!item) continue
+    for (const component of asArray(item.components)) {
+      const part = asRecord(component)
+      if (!part) continue
+      const kind = str(part.compensationType)?.toLowerCase() ?? ""
+      if (kind && kind !== "salary" && kind !== "base") continue
+      const salary = toSalary({
+        min: part.minValue,
+        max: part.maxValue,
+        currency: part.currencyCode,
+        period: part.interval,
+      })
+      if (salary) return salary
+    }
+  }
+  return undefined
+}
 
 export function parseAshby(payload: unknown, fallbackCompany?: string): RawJob[] {
   const root = asRecord(payload)
@@ -21,6 +45,7 @@ export function parseAshby(payload: unknown, fallbackCompany?: string): RawJob[]
       url,
       description: clipDescription(str(row.descriptionHtml) ?? str(row.descriptionPlain)),
       postedAt: str(row.publishedAt),
+      salary: ashbySalary(row),
     })
   }
   return jobs

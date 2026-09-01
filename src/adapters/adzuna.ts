@@ -1,5 +1,6 @@
 import { asArray, asRecord, fetchJson, str } from "../http"
 import { clipDescription } from "../prefilter"
+import { toSalary } from "../salary"
 import type { Adapter, AdapterEnv, RawJob } from "../types"
 
 export function parseAdzuna(payload: unknown): RawJob[] {
@@ -22,6 +23,7 @@ export function parseAdzuna(payload: unknown): RawJob[] {
       url,
       description: clipDescription(str(row.description)),
       postedAt: str(row.created),
+      salary: toSalary({ min: row.salary_min, max: row.salary_max, currency: "EUR" }),
     })
   }
   return jobs

@@ -1,0 +1,3 @@
+ALTER TABLE jobs ADD COLUMN salary_min INTEGER;
+ALTER TABLE jobs ADD COLUMN salary_max INTEGER;
+ALTER TABLE jobs ADD COLUMN salary_currency TEXT;

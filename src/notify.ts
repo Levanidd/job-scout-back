@@ -1,4 +1,5 @@
 import type { Bindings } from "./types"
+import { formatSalary } from "./salary"
 
 type DigestJob = {
   company: string
@@ -7,6 +8,9 @@ type DigestJob = {
   score: number
   reason: string | null
   flags: string | null
+  salary_min?: number | null
+  salary_max?: number | null
+  salary_currency?: string | null
 }
 
 function escapeHtml(value: string): string {
@@ -28,7 +32,9 @@ export function renderDigest(jobs: DigestJob[], newCompanies: number): string {
     blocks.push(`\n<b>${escapeHtml(company)}</b>`)
     for (const job of list) {
       const reason = job.reason ? ` — ${escapeHtml(job.reason)}` : ""
-      blocks.push(`• <a href="${escapeHtml(job.url)}">${escapeHtml(job.title)}</a> (${job.score})${reason}`)
+      const pay = formatSalary(job.salary_min, job.salary_max, job.salary_currency)
+      const salary = pay ? ` · ${escapeHtml(pay)}` : ""
+      blocks.push(`• <a href="${escapeHtml(job.url)}">${escapeHtml(job.title)}</a> (${job.score})${salary}${reason}`)
     }
   }
   if (newCompanies > 0) {

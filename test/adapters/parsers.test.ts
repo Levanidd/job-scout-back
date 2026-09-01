@@ -266,5 +266,32 @@ describe("adapter parsers", () => {
       provider: "personio",
       token: "acme",
     })
+    expect(detectToken(new URL("https://acme.breezy.hr"))).toEqual({
+      provider: "breezy",
+      token: "https://acme.breezy.hr/",
+    })
+    expect(detectToken(new URL("https://acme.pinpointhq.com"))).toEqual({
+      provider: "pinpoint",
+      token: "https://acme.pinpointhq.com/",
+    })
+    expect(detectToken(new URL("https://ats.rippling.com/acme/jobs"))).toEqual({
+      provider: "rippling",
+      token: "https://ats.rippling.com/acme/jobs",
+    })
+  })
+
+  it("reads greenhouse pay ranges as yearly salary", () => {
+    const jobs = parseGreenhouse({
+      jobs: [
+        {
+          id: 1,
+          title: "Product Manager",
+          absolute_url: "https://boards.greenhouse.io/x/jobs/1",
+          location: { name: "Berlin" },
+          pay_input_ranges: [{ min_cents: 8_000_000, max_cents: 11_000_000, currency_type: "EUR" }],
+        },
+      ],
+    })
+    expect(jobs[0]?.salary).toEqual({ min: 80_000, max: 110_000, currency: "EUR" })
   })
 })

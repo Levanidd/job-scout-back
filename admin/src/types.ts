@@ -23,6 +23,9 @@ export type Job = {
   first_seen_at: string
   last_seen_at: string
   changed_at?: string | null
+  salary_min?: number | null
+  salary_max?: number | null
+  salary_currency?: string | null
   score: number | null
   score_reason: string | null
   flags: string | null

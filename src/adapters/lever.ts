@@ -1,5 +1,6 @@
 import { asArray, asRecord, fetchJson, str } from "../http"
 import { clipDescription } from "../prefilter"
+import { toSalary } from "../salary"
 import type { Adapter, RawJob } from "../types"
 
 export function parseLever(payload: unknown, fallbackCompany?: string): RawJob[] {
@@ -13,6 +14,7 @@ export function parseLever(payload: unknown, fallbackCompany?: string): RawJob[]
     if (!id || !title || !url) continue
     const categories = asRecord(row.categories)
     const created = row.createdAt
+    const range = asRecord(row.salaryRange)
     jobs.push({
       externalId: id,
       title,
@@ -21,6 +23,9 @@ export function parseLever(payload: unknown, fallbackCompany?: string): RawJob[]
       url,
       description: clipDescription(str(row.descriptionPlain) ?? str(row.description)),
       postedAt: typeof created === "number" ? new Date(created).toISOString() : str(created),
+      salary: range
+        ? toSalary({ min: range.min, max: range.max, currency: range.currency, period: range.interval })
+        : undefined,
     })
   }
   return jobs

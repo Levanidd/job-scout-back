@@ -96,8 +96,8 @@ export async function runSource(env: Bindings, source: SourceRow): Promise<RunRe
       if (!existing) jobsNew += 1
       const description = clipDescription(job.description) ?? null
       await env.DB.prepare(
-        `INSERT INTO jobs (id, source_id, external_id, company, company_key, title, location, url, description, posted_at, dedup_key, first_seen_at, last_seen_at, changed_at, closed_at, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'), NULL, 'new')
+        `INSERT INTO jobs (id, source_id, external_id, company, company_key, title, location, url, description, posted_at, salary_min, salary_max, salary_currency, dedup_key, first_seen_at, last_seen_at, changed_at, closed_at, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'), NULL, 'new')
          ON CONFLICT(id) DO UPDATE SET
            last_seen_at = datetime('now'),
            title = excluded.title,
@@ -106,11 +106,16 @@ export async function runSource(env: Bindings, source: SourceRow): Promise<RunRe
            closed_at = NULL,
            posted_at = COALESCE(excluded.posted_at, jobs.posted_at),
            description = COALESCE(excluded.description, jobs.description),
+           salary_min = COALESCE(excluded.salary_min, jobs.salary_min),
+           salary_max = COALESCE(excluded.salary_max, jobs.salary_max),
+           salary_currency = COALESCE(excluded.salary_currency, jobs.salary_currency),
            changed_at = CASE
              WHEN excluded.title IS NOT jobs.title
                OR IFNULL(excluded.location, '') IS NOT IFNULL(jobs.location, '')
                OR (excluded.description IS NOT NULL AND excluded.description IS NOT IFNULL(jobs.description, ''))
                OR (excluded.posted_at IS NOT NULL AND excluded.posted_at IS NOT IFNULL(jobs.posted_at, ''))
+               OR IFNULL(excluded.salary_min, -1) IS NOT IFNULL(jobs.salary_min, -1)
+               OR IFNULL(excluded.salary_max, -1) IS NOT IFNULL(jobs.salary_max, -1)
              THEN datetime('now')
              ELSE IFNULL(jobs.changed_at, jobs.first_seen_at)
            END`,
@@ -126,6 +131,9 @@ export async function runSource(env: Bindings, source: SourceRow): Promise<RunRe
           job.url,
           description,
           job.postedAt ?? null,
+          job.salary?.min ?? null,
+          job.salary?.max ?? null,
+          job.salary?.currency || null,
           opening,
         )
         .run()
@@ -465,7 +473,8 @@ export async function notifyNew(env: Bindings): Promise<number> {
   // straight to the posting rather than through an aggregator.
   const rows = await env.DB.prepare(
     `SELECT j.company, j.title, j.url, MAX(j.score) AS score, j.score_reason as reason, j.flags, j.id,
-            s.tier, j.dedup_key
+            s.tier, j.dedup_key, MAX(j.salary_min) AS salary_min, MAX(j.salary_max) AS salary_max,
+            MIN(j.salary_currency) AS salary_currency
      FROM jobs j JOIN sources s ON s.id = j.source_id
      WHERE j.notified_at IS NULL AND j.closed_at IS NULL AND j.status = 'new' AND j.score IS NOT NULL
        AND (
@@ -484,6 +493,9 @@ export async function notifyNew(env: Bindings): Promise<number> {
     flags: string | null
     id: string
     dedup_key: string | null
+    salary_min: number | null
+    salary_max: number | null
+    salary_currency: string | null
   }>()
 
   const discovered = await env.DB.prepare(

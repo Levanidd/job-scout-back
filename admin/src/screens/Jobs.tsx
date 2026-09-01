@@ -4,7 +4,7 @@ import { api, type JobFilters, type JobSort } from "../api"
 import { useAction, useApp } from "../app-context"
 import { MultiSelect } from "../components/MultiSelect"
 import { SortHeader } from "../components/SortHeader"
-import { Age, Empty, Flags, ScoreBadge, Skeletons, formatDate, plural } from "../components/common"
+import { Age, Empty, Flags, ScoreBadge, Skeletons, formatDate, formatSalary, plural } from "../components/common"
 import type { CompanyFacet, Job, JobStatus } from "../types"
 
 const STATUS_LABELS: Record<JobStatus, string> = {
@@ -350,7 +350,9 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
                 </tr>
               </thead>
               <tbody>
-                {jobs.map((job) => (
+                {jobs.map((job) => {
+                  const pay = formatSalary(job.salary_min, job.salary_max, job.salary_currency)
+                  return (
                   <Fragment key={job.id}>
                     <tr className={`${inPipeline(job) ? "is-applied" : ""} ${scoring === job.id || batch ? "is-busy" : ""}`.trim()}>
                       <td className="col-check">
@@ -369,6 +371,7 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
                         <div className="cell-sub">
                           <span className="cell-company-inline">{job.company}</span>
                           {job.location ? <span>{job.location}</span> : null}
+                          {pay ? <span>{pay}</span> : null}
                         </div>
                         <button
                           type="button"
@@ -424,6 +427,7 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
                               {job.tier === "watchlist" ? "watchlist" : "discovery"}
                             </span>
                             <span className="badge badge-neutral">{job.source_label}</span>
+                            {pay ? <span className="badge badge-accent">{pay}</span> : null}
                             <span className="badge badge-neutral">
                               найдена {formatDate(job.first_seen_at)}
                             </span>
@@ -450,7 +454,8 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
                       </tr>
                     ) : null}
                   </Fragment>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>

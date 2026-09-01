@@ -18,8 +18,9 @@ free, we map it. Every such edit is marked `job-scout patch` in place.
 
 | File | Patch |
 | --- | --- |
-| `remoteok.mjs` | Keep `description` and `epoch` as `postedAt`. |
+| `remoteok.mjs` | Keep `description`, `epoch` as `postedAt`, and `salary_min`/`salary_max`. |
 | `remotive.mjs` | Keep `description` and `publication_date` as `postedAt`. |
+| `landingjobs.mjs` | Keep `gross_salary_low`/`gross_salary_high` as yearly EUR. |
 | `_http.mjs` | Trimmed to the retry policy; see below. |
 
 `_http.mjs` upstream also holds the low-level transport, which binds to

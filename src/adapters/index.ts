@@ -1,20 +1,36 @@
 import type { Adapter } from "../types"
+import { fourdayweek } from "./4dayweek"
 import { adzuna } from "./adzuna"
 import { arbeitsagentur } from "./arbeitsagentur"
 import { arbeitnow } from "./arbeitnow"
 import { ashby } from "./ashby"
+import { bamboohr } from "./bamboohr"
+import { beesite } from "./beesite"
+import { breezy } from "./breezy"
 import { consider } from "./consider"
+import { eightfold } from "./eightfold"
+import { flowxtra } from "./flowxtra"
+import { gem } from "./gem"
+import { getonbrd } from "./getonbrd"
 import { getro } from "./getro"
 import { greenhouse } from "./greenhouse"
 import { himalayas } from "./himalayas"
 import { jobicy } from "./jobicy"
 import { join } from "./join"
+import { joinup } from "./joinup"
+import { justjoin } from "./justjoin"
 import { landingjobs } from "./landingjobs"
 import { lever } from "./lever"
+import { manfred } from "./manfred"
+import { nodesk } from "./nodesk"
+import { nofluffjobs } from "./nofluffjobs"
 import { personio } from "./personio"
+import { pinpoint } from "./pinpoint"
 import { recruitee } from "./recruitee"
 import { remoteok } from "./remoteok"
+import { remotli } from "./remotli"
 import { remotive } from "./remotive"
+import { rippling } from "./rippling"
 import { rss } from "./rss"
 import { smartrecruiters } from "./smartrecruiters"
 import { softgarden } from "./softgarden"
@@ -38,6 +54,13 @@ export const adapters: Adapter[] = [
   teamtailor,
   softgarden,
   workday,
+  breezy,
+  bamboohr,
+  pinpoint,
+  rippling,
+  gem,
+  eightfold,
+  beesite,
   arbeitsagentur,
   arbeitnow,
   adzuna,
@@ -51,6 +74,15 @@ export const adapters: Adapter[] = [
   wttj,
   getro,
   consider,
+  fourdayweek,
+  justjoin,
+  nofluffjobs,
+  manfred,
+  remotli,
+  getonbrd,
+  flowxtra,
+  nodesk,
+  joinup,
   // Must precede rss, whose detect() would claim /remote-jobs.rss first.
   weworkremotely,
   // rss matches on a generic path pattern, so it stays the last resort.

@@ -85,6 +85,31 @@ export function formatDate(value: string | null): string {
   return date.toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
 }
 
+const SALARY_SYMBOLS: Record<string, string> = {
+  EUR: "€",
+  USD: "$",
+  GBP: "£",
+  CHF: "CHF ",
+  PLN: "zł ",
+}
+
+function compactPay(value: number): string {
+  if (value >= 10_000) return `${Math.round(value / 1000)}k`
+  if (value >= 1000) return `${(value / 1000).toFixed(1).replace(/\.0$/, "")}k`
+  return String(Math.round(value))
+}
+
+export function formatSalary(min?: number | null, max?: number | null, currency?: string | null): string | null {
+  if (min == null && max == null) return null
+  const symbol = SALARY_SYMBOLS[currency?.toUpperCase() ?? ""] ?? (currency ? `${currency} ` : "")
+  if (min != null && max != null && min !== max) return `${symbol}${compactPay(min)}–${compactPay(max)}`
+  const amount = min ?? max
+  if (amount == null) return null
+  if (min != null && max == null) return `от ${symbol}${compactPay(min)}`
+  if (min == null && max != null) return `до ${symbol}${compactPay(max)}`
+  return `${symbol}${compactPay(amount)}`
+}
+
 export function plural(count: number, forms: [string, string, string]): string {
   const tail = count % 10
   const teen = count % 100

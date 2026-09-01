@@ -1,3 +1,7 @@
+import type { Salary } from "./salary"
+
+export type { Salary }
+
 export type RawJob = {
   externalId: string
   title: string
@@ -6,6 +10,7 @@ export type RawJob = {
   url: string
   description?: string
   postedAt?: string
+  salary?: Salary
 }
 
 export type AdapterEnv = {
@@ -57,6 +62,9 @@ export type JobRow = {
   notes?: string | null
   applied_at?: string | null
   changed_at?: string | null
+  salary_min?: number | null
+  salary_max?: number | null
+  salary_currency?: string | null
   tier?: string
 }
 

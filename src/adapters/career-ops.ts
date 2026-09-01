@@ -10,6 +10,7 @@
 
 import { fetchJson, fetchResponse, fetchText, toIso } from "../http"
 import { clipDescription } from "../prefilter"
+import { fromCareerOpsSalary } from "../salary"
 import type { Adapter, RawJob } from "../types"
 
 /** Their normalized posting (providers/_types.js `Job`). */
@@ -20,6 +21,7 @@ export type CareerOpsJob = {
   location?: string
   description?: string
   postedAt?: number
+  salary?: { min?: number; max?: number; currency?: string }
 }
 
 /** Their `FetchOptions`, which is RequestInit plus a timeout they let us ignore. */
@@ -146,6 +148,7 @@ export function fromCareerOps(provider: CareerOpsProvider, options: BridgeOption
           url,
           description: clipDescription(job.description),
           postedAt: toIso(job.postedAt),
+          salary: fromCareerOpsSalary(job.salary),
         })
       }
       return out

@@ -41,6 +41,9 @@ export default {
         // job-scout patch: the feed carries these for free and our scorer reads them.
         description: typeof j.description === 'string' ? j.description : undefined,
         postedAt: typeof j.epoch === 'number' ? j.epoch * 1000 : undefined,
+        salary: (typeof j.salary_min === 'number' || typeof j.salary_max === 'number')
+          ? { min: j.salary_min, max: j.salary_max, currency: 'USD' }
+          : undefined,
       }));
   },
 };

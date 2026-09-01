@@ -1,6 +1,23 @@
 import { asArray, asRecord, fetchJson, str } from "../http"
 import { clipDescription } from "../prefilter"
-import type { Adapter, RawJob } from "../types"
+import { toSalary } from "../salary"
+import type { Adapter, RawJob, Salary } from "../types"
+
+function greenhouseSalary(row: Record<string, unknown>): Salary | undefined {
+  for (const item of asArray(row.pay_input_ranges)) {
+    const range = asRecord(item)
+    if (!range) continue
+    const salary = toSalary({
+      min: range.min_cents ?? range.min,
+      max: range.max_cents ?? range.max,
+      currency: range.currency_type ?? range.currency,
+      period: range.interval,
+      cents: range.min_cents != null || range.max_cents != null,
+    })
+    if (salary) return salary
+  }
+  return undefined
+}
 
 export function parseGreenhouse(payload: unknown, fallbackCompany?: string): RawJob[] {
   const root = asRecord(payload)
@@ -21,6 +38,7 @@ export function parseGreenhouse(payload: unknown, fallbackCompany?: string): Raw
       url,
       description: clipDescription(str(row.content)),
       postedAt: str(row.updated_at) ?? str(row.first_published),
+      salary: greenhouseSalary(row),
     })
   }
   return jobs

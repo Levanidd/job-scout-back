@@ -106,10 +106,20 @@ export function normalizeLandingJob(j, fallbackCompany) {
   const base = [city, country].filter(Boolean).join(', ');
   const location = [base, j.remote === true ? 'Remote' : ''].filter(Boolean).join(', ');
 
-  /** @type {{ title: string, url: string, company: string, location: string, postedAt?: number }} */
+  /** @type {{ title: string, url: string, company: string, location: string, postedAt?: number, salary?: { min?: number, max?: number, currency: string } }} */
   const job = { title, url, company, location };
   const postedAt = toEpochMs(j.published_at) ?? toEpochMs(j.created_at);
   if (postedAt !== undefined) job.postedAt = postedAt;
+  // job-scout patch: yearly bounds are already on the feed.
+  const low = Number(j.gross_salary_low);
+  const high = Number(j.gross_salary_high);
+  if (Number.isFinite(low) || Number.isFinite(high)) {
+    job.salary = {
+      min: Number.isFinite(low) && low > 0 ? low : undefined,
+      max: Number.isFinite(high) && high > 0 ? high : undefined,
+      currency: 'EUR',
+    };
+  }
   return job;
 }
 

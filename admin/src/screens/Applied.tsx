@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 
 import { api } from "../api"
 import { useAction, useApp } from "../app-context"
-import { Age, Empty, Field, ScoreBadge, Skeletons, formatDate } from "../components/common"
+import { Age, Empty, Field, ScoreBadge, Skeletons, formatDate, formatSalary } from "../components/common"
 import type { Job, JobStatus } from "../types"
 
 const PIPE: Array<{ id: "" | "applied" | "interview" | "rejected"; label: string }> = [
@@ -144,6 +144,9 @@ export function Applied() {
               <p className="card-sub">
                 {open.company}
                 {open.location ? ` · ${open.location}` : ""}
+                {formatSalary(open.salary_min, open.salary_max, open.salary_currency)
+                  ? ` · ${formatSalary(open.salary_min, open.salary_max, open.salary_currency)}`
+                  : ""}
               </p>
             </div>
             <ScoreBadge score={open.score} />
@@ -234,6 +237,9 @@ export function Applied() {
                       {job.title}
                     </a>
                     {job.location ? <div className="cell-sub">{job.location}</div> : null}
+                    {formatSalary(job.salary_min, job.salary_max, job.salary_currency) ? (
+                      <div className="cell-sub">{formatSalary(job.salary_min, job.salary_max, job.salary_currency)}</div>
+                    ) : null}
                   </td>
                   <td className="col-company">{job.company}</td>
                   <td className="col-score">

@@ -329,7 +329,8 @@ function jobOrder(c: Context<{ Bindings: Bindings }>): string {
 
 // Descriptions run to kilobytes each and the list never shows them.
 const JOB_COLUMNS = `j.id, j.source_id, j.company, j.company_key, j.title, j.location, j.url,
-  j.posted_at, j.first_seen_at, j.last_seen_at, j.changed_at, j.score, j.score_reason, j.flags, j.status, j.applied_at`
+  j.posted_at, j.first_seen_at, j.last_seen_at, j.changed_at, j.salary_min, j.salary_max, j.salary_currency,
+  j.score, j.score_reason, j.flags, j.status, j.applied_at`
 
 app.get("/api/applied", async (c) => {
   const status = c.req.query("status") ?? ""

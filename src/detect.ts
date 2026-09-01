@@ -20,6 +20,13 @@ const ATS_MARKERS: { re: RegExp; provider: string; group: number; useUrl?: boole
   { re: /apply\.workable\.com\/([a-z0-9_-]+)/i, provider: "workable", group: 1 },
   { re: /careers\.smartrecruiters\.com\/([a-z0-9_-]+)/i, provider: "smartrecruiters", group: 1 },
   { re: /([a-z0-9-]+)\.recruitee\.com/i, provider: "recruitee", group: 1 },
+  { re: /([a-z0-9-]+)\.breezy\.hr/i, provider: "breezy", group: 0, useUrl: true },
+  { re: /([a-z0-9-]+)\.bamboohr\.com/i, provider: "bamboohr", group: 0, useUrl: true },
+  { re: /([a-z0-9-]+)\.pinpointhq\.com/i, provider: "pinpoint", group: 0, useUrl: true },
+  { re: /ats\.rippling\.com\/([a-z0-9-]+)/i, provider: "rippling", group: 0, useUrl: true },
+  { re: /jobs\.gem\.com\/([a-z0-9_-]+)/i, provider: "gem", group: 0, useUrl: true },
+  { re: /([a-z0-9-]+)\.eightfold\.ai/i, provider: "eightfold", group: 0, useUrl: true },
+  { re: /([a-z0-9-]+)\.app\.beesite\.de/i, provider: "beesite", group: 0, useUrl: true },
   // A fund's talent network runs on the fund's own domain, so nothing names the
   // vendor except its assets. The page URL is the token; the adapter takes it
   // from there.
