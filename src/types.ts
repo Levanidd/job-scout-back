@@ -70,6 +70,7 @@ export type JobRow = {
 
 export type Bindings = {
   DB: D1Database
+  SELF?: Fetcher
   ADMIN_TOKEN: string
   GEMINI_API_KEY?: string
   GEMINI_MODEL?: string

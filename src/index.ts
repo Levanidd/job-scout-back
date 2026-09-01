@@ -531,15 +531,14 @@ app.put("/api/settings", async (c) => {
 app.get("/api/run", async (c) => c.json(await loadCycleView(c.env)))
 
 app.post("/api/run", async (c) => {
-  const origin = requestOrigin(c.req.url)
-  const cycle = await startCycle(c.env, origin)
-  enqueueTick(c.env, origin, c.executionCtx)
+  const cycle = await startCycle(c.env, requestOrigin(c.req.url))
+  enqueueTick(c.env, c.executionCtx)
   return c.json(cycle)
 })
 
 app.post("/api/run/tick", async (c) => {
   const more = await tickOnce(c.env)
-  if (more) enqueueTick(c.env, requestOrigin(c.req.url), c.executionCtx)
+  if (more) enqueueTick(c.env, c.executionCtx)
   return c.json({ ok: true, more })
 })
 

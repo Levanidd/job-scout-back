@@ -259,21 +259,34 @@ export async function tickOnce(env: Bindings): Promise<boolean> {
   }
 }
 
-/** Kick the next hop as its own Worker request so this invocation can finish. */
-export function enqueueTick(env: Bindings, origin: string, ctx: { waitUntil(promise: Promise<unknown>): void }): void {
-  const url = new URL("/api/run/tick", origin).href
-  ctx.waitUntil(
-    fetch(url, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${env.ADMIN_TOKEN}` },
-    })
-      .then(async (res) => {
-        if (res.ok) return
-        const body = await res.text().catch(() => "")
-        await failCycle(env, `tick failed: ${res.status} ${body.slice(0, 200)}`)
-      })
-      .catch((error) => failCycle(env, error)),
-  )
+/** Kick the next hop as its own Worker invocation so this one can finish. */
+export function enqueueTick(env: Bindings, ctx: { waitUntil(promise: Promise<unknown>): void }): void {
+  ctx.waitUntil(runTickHop(env, ctx))
+}
+
+async function runTickHop(
+  env: Bindings,
+  ctx: { waitUntil(promise: Promise<unknown>): void },
+): Promise<void> {
+  try {
+    if (env.SELF) {
+      const res = await env.SELF.fetch(
+        new Request("https://jobradar.internal/api/run/tick", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${env.ADMIN_TOKEN}` },
+        }),
+      )
+      if (res.ok) return
+      const body = await res.text().catch(() => "")
+      await failCycle(env, `tick failed: ${res.status} ${body.slice(0, 200)}`)
+      return
+    }
+
+    const more = await tickOnce(env)
+    if (more) enqueueTick(env, ctx)
+  } catch (error) {
+    await failCycle(env, error)
+  }
 }
 
 export function requestOrigin(url: string): string {
