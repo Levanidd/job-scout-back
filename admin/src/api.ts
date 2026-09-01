@@ -161,8 +161,8 @@ export const api = {
     return post("/jobs/score", { ids })
   },
 
-  discovered(state: string): Promise<{ companies: DiscoveredCompany[] }> {
-    return request(`/discovered?state=${encodeURIComponent(state)}`)
+  discovered(): Promise<{ companies: DiscoveredCompany[] }> {
+    return request("/discovered")
   },
 
   addDiscovered(key: string): Promise<{ added: boolean; ats: string | null }> {
