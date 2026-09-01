@@ -49,6 +49,15 @@ export function CompassIcon({ className }: IconProps) {
   )
 }
 
+export function CheckIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M8 12.5 10.8 15.2 16.2 9.5" />
+    </svg>
+  )
+}
+
 export function PersonIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className}>

@@ -12,6 +12,7 @@ const STATUS_LABELS: Record<JobStatus, string> = {
   notified: "отправлена",
   saved: "сохранена",
   applied: "откликнулся",
+  interview: "интервью",
   rejected: "отказ",
   ignored: "скрыта",
   off_profile: "вне профиля",
@@ -81,7 +82,16 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
   async function setStatus(job: Job, next: JobStatus) {
     const result = await run(() => api.setJobStatus(job.id, next))
     if (!result) return
-    setJobs((prev) => prev?.map((item) => (item.id === job.id ? { ...item, status: next } : item)) ?? null)
+    setJobs(
+      (prev) =>
+        prev?.map((item) =>
+          item.id === job.id ? { ...item, status: result.status, applied_at: result.applied_at } : item,
+        ) ?? null,
+    )
+  }
+
+  function inPipeline(job: Job): boolean {
+    return Boolean(job.applied_at) || job.status === "applied" || job.status === "interview"
   }
 
   function applyScores(
@@ -141,7 +151,7 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
   }
 
   async function toggleApplied(job: Job) {
-    if (job.status === "applied") {
+    if (inPipeline(job)) {
       await setStatus(job, previous.current.get(job.id) ?? "saved")
       return
     }
@@ -328,12 +338,12 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
               <tbody>
                 {jobs.map((job) => (
                   <Fragment key={job.id}>
-                    <tr className={`${job.status === "applied" ? "is-applied" : ""} ${scoring === job.id || batch ? "is-busy" : ""}`.trim()}>
+                    <tr className={`${inPipeline(job) ? "is-applied" : ""} ${scoring === job.id || batch ? "is-busy" : ""}`.trim()}>
                       <td className="col-check">
                         <input
                           type="checkbox"
                           className="checkbox"
-                          checked={job.status === "applied"}
+                          checked={inPipeline(job)}
                           aria-label={`Откликнулся: ${job.title}`}
                           onChange={() => void toggleApplied(job)}
                         />

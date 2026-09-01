@@ -54,6 +54,8 @@ export type JobRow = {
   flags: string | null
   notified_at: string | null
   status: string
+  notes?: string | null
+  applied_at?: string | null
   tier?: string
 }
 

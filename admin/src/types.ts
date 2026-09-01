@@ -5,6 +5,7 @@ export type JobStatus =
   | "notified"
   | "saved"
   | "applied"
+  | "interview"
   | "rejected"
   | "ignored"
   /** Title did not match the prefilter, so it was never scored. */
@@ -25,6 +26,9 @@ export type Job = {
   score_reason: string | null
   flags: string | null
   status: JobStatus
+  applied_at: string | null
+  notes?: string | null
+  description?: string | null
   tier: Tier
   source_label: string
 }

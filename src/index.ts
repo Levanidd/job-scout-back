@@ -304,7 +304,7 @@ function jobFilters(c: Context<{ Bindings: Bindings }>, withCompanies: boolean) 
 }
 
 const JOB_ORDER: Record<string, string> = {
-  applied: `(j.status = 'applied')`,
+  applied: `(j.applied_at IS NOT NULL)`,
   title: "j.title COLLATE NOCASE",
   company: "j.company COLLATE NOCASE",
   score: "j.score",
@@ -321,7 +321,24 @@ function jobOrder(c: Context<{ Bindings: Bindings }>): string {
 
 // Descriptions run to kilobytes each and the list never shows them.
 const JOB_COLUMNS = `j.id, j.source_id, j.company, j.company_key, j.title, j.location, j.url,
-  j.posted_at, j.first_seen_at, j.last_seen_at, j.score, j.score_reason, j.flags, j.status`
+  j.posted_at, j.first_seen_at, j.last_seen_at, j.score, j.score_reason, j.flags, j.status, j.applied_at`
+
+app.get("/api/applied", async (c) => {
+  const status = c.req.query("status") ?? ""
+  const clauses = ["j.applied_at IS NOT NULL"]
+  const binds: string[] = []
+  if (status === "applied" || status === "interview" || status === "rejected") {
+    clauses.push("j.status = ?")
+    binds.push(status)
+  }
+  const sql = `SELECT ${JOB_COLUMNS}, j.description, j.notes, s.tier, s.label as source_label
+    FROM jobs j JOIN sources s ON s.id = j.source_id
+    WHERE ${clauses.join(" AND ")}
+    ORDER BY j.applied_at DESC
+    LIMIT 200`
+  const rows = await c.env.DB.prepare(sql).bind(...binds).all()
+  return c.json({ jobs: rows.results })
+})
 
 app.get("/api/jobs", async (c) => {
   const { clauses, binds } = jobFilters(c, true)
@@ -362,11 +379,40 @@ app.post("/api/jobs/score", async (c) => {
 
 app.patch("/api/jobs/:id", async (c) => {
   const id = c.req.param("id")
-  const body = await c.req.json<{ status: string }>()
-  const allowed = ["new", "notified", "saved", "applied", "rejected", "ignored", "off_profile"]
-  if (!allowed.includes(body.status)) return c.json({ error: "bad status" }, 400)
-  await c.env.DB.prepare(`UPDATE jobs SET status = ? WHERE id = ?`).bind(body.status, id).run()
-  return c.json({ ok: true })
+  const body = await c.req.json<{ status?: string; notes?: string }>()
+  const current = await c.env.DB.prepare(`SELECT status, applied_at FROM jobs WHERE id = ?`).bind(id).first<{
+    status: string
+    applied_at: string | null
+  }>()
+  if (!current) return c.json({ error: "not found" }, 404)
+
+  const allowed = ["new", "notified", "saved", "applied", "interview", "rejected", "ignored", "off_profile"]
+  if (body.status && !allowed.includes(body.status)) return c.json({ error: "bad status" }, 400)
+  if (body.status === undefined && body.notes === undefined) return c.json({ error: "nothing to update" }, 400)
+
+  const sets: string[] = []
+  const binds: (string | null)[] = []
+  if (body.status) {
+    sets.push("status = ?")
+    binds.push(body.status)
+    if (body.status === "applied" || body.status === "interview") {
+      sets.push("applied_at = COALESCE(applied_at, datetime('now'))")
+    } else if (body.status !== "rejected") {
+      sets.push("applied_at = NULL")
+    }
+  }
+  if (body.notes !== undefined) {
+    sets.push("notes = ?")
+    binds.push(body.notes)
+  }
+  binds.push(id)
+  await c.env.DB.prepare(`UPDATE jobs SET ${sets.join(", ")} WHERE id = ?`)
+    .bind(...binds)
+    .run()
+  const row = await c.env.DB.prepare(`SELECT status, notes, applied_at FROM jobs WHERE id = ?`)
+    .bind(id)
+    .first<{ status: string; notes: string | null; applied_at: string | null }>()
+  return c.json({ ok: true, status: row?.status ?? body.status ?? current.status, notes: row?.notes ?? null, applied_at: row?.applied_at ?? null })
 })
 
 app.post("/api/jobs/:id/score", async (c) => {

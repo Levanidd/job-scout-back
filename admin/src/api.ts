@@ -103,11 +103,33 @@ export const api = {
     return request(`/jobs/companies${jobQuery({ ...filters, companies: undefined, sort: undefined, dir: undefined })}`)
   },
 
-  setJobStatus(id: string, status: JobStatus): Promise<{ ok: true }> {
+  setJobStatus(id: string, status: JobStatus): Promise<{
+    ok: true
+    status: JobStatus
+    notes: string | null
+    applied_at: string | null
+  }> {
     return request(`/jobs/${encodeURIComponent(id)}`, {
       method: "PATCH",
       body: JSON.stringify({ status }),
     })
+  },
+
+  saveJobNotes(id: string, notes: string): Promise<{
+    ok: true
+    status: JobStatus
+    notes: string | null
+    applied_at: string | null
+  }> {
+    return request(`/jobs/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ notes }),
+    })
+  },
+
+  applied(status?: string): Promise<{ jobs: Job[] }> {
+    const query = status ? `?status=${encodeURIComponent(status)}` : ""
+    return request(`/applied${query}`)
   },
 
   scoreJob(id: string): Promise<{
