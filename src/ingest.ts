@@ -265,16 +265,14 @@ export async function prefilterAndScore(
   limit?: number,
 ): Promise<{ scored: number; remaining: number }> {
   const open = await env.DB.prepare(
-    `SELECT * FROM jobs WHERE closed_at IS NULL AND (score IS NULL OR status = 'new')`,
+    `SELECT id, company, company_key, title, location, score, status, dedup_key
+     FROM jobs WHERE closed_at IS NULL AND (score IS NULL OR status = 'new')`,
   ).all<{
     id: string
-    source_id: number
-    external_id: string
     company: string
     company_key: string
     title: string
     location: string | null
-    description: string | null
     score: number | null
     status: string
     dedup_key: string | null
@@ -293,9 +291,10 @@ export async function prefilterAndScore(
   ).all<{ dedup_key: string; score: number; score_reason: string | null; flags: string | null }>()
   const verdicts = new Map(judged.results.map((row) => [row.dedup_key, row]))
 
-  const toScore: ScoreInput[] = []
+  const toScore: Array<{ id: string; company_key: string; dedup_key: string | null; input: ScoreInput }> = []
   /** Twins of a job that is being scored right now, waiting for its verdict. */
   const awaiting = new Map<string, string[]>()
+  const dropIds: string[] = []
 
   const applyVerdict = async (
     id: string,
@@ -311,11 +310,7 @@ export async function prefilterAndScore(
     if (!passesPrefilter(job.title, rules)) {
       // Kept out of the scoring queue but not out of sight: the title says the
       // role is not ours, and the description is dropped because nothing reads it.
-      await env.DB.prepare(
-        `UPDATE jobs SET score = 0, score_reason = 'prefilter', flags = '[]', status = 'off_profile', description = NULL WHERE id = ?`,
-      )
-        .bind(job.id)
-        .run()
+      dropIds.push(job.id)
       continue
     }
     if (job.score != null) continue
@@ -336,18 +331,47 @@ export async function prefilterAndScore(
     }
 
     toScore.push({
-      external_id: job.id,
-      title: job.title,
-      company: job.company,
-      location: job.location ?? "",
-      description: job.description ?? "",
+      id: job.id,
+      company_key: job.company_key,
+      dedup_key: job.dedup_key,
+      input: {
+        external_id: job.id,
+        title: job.title,
+        company: job.company,
+        location: job.location ?? "",
+        description: "",
+      },
     })
+  }
+
+  if (dropIds.length > 0) {
+    await updateIds(
+      env,
+      dropIds,
+      `UPDATE jobs SET score = 0, score_reason = 'prefilter', flags = '[]', status = 'off_profile', description = NULL WHERE id IN`,
+    )
   }
 
   const batch = limit ? toScore.slice(0, limit) : toScore
   const remaining = toScore.length - batch.length
 
-  const scores = await scoreInBatches(batch, profile, await resolveScoringConfig(env))
+  if (batch.length > 0) {
+    const bodies = await env.DB.prepare(
+      `SELECT id, description FROM jobs WHERE id IN (${batch.map(() => "?").join(", ")})`,
+    )
+      .bind(...batch.map((item) => item.id))
+      .all<{ id: string; description: string | null }>()
+    const byId = new Map(bodies.results.map((row) => [row.id, row.description ?? ""]))
+    for (const item of batch) {
+      item.input.description = byId.get(item.id) ?? ""
+    }
+  }
+
+  const scores = await scoreInBatches(
+    batch.map((item) => item.input),
+    profile,
+    await resolveScoringConfig(env),
+  )
   for (const item of scores) {
     const verdict = {
       score: item.score,
@@ -355,7 +379,7 @@ export async function prefilterAndScore(
       flags: JSON.stringify(item.flags),
     }
     await applyVerdict(item.external_id, verdict)
-    const scored = open.results.find((row) => row.id === item.external_id)
+    const scored = batch.find((row) => row.id === item.external_id)
     for (const twin of (scored?.dedup_key && awaiting.get(scored.dedup_key)) || []) {
       await applyVerdict(twin, verdict)
     }
