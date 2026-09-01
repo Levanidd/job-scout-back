@@ -127,7 +127,7 @@ function compare(a: Source, b: Source, sort: SourceSort, dir: "asc" | "desc"): n
   return b.id - a.id
 }
 
-export function Sources() {
+export function Sources({ onOpenJobs }: { onOpenJobs: (source: Source) => void }) {
   const run = useAction()
   const { notify, refreshTick, sourcesTick, runningSourceId } = useApp()
   const [sources, setSources] = useState<Source[] | null>(null)
@@ -518,7 +518,17 @@ export function Sources() {
                         <option value="discovery">discovery</option>
                       </select>
                     </td>
-                    <td className="col-score">{source.active_jobs}</td>
+                    <td className="col-score">
+                      <button
+                        type="button"
+                        className="th-sort"
+                        style={{ textTransform: "none", letterSpacing: 0, fontWeight: 600 }}
+                        title="Вакансии этого источника"
+                        onClick={() => onOpenJobs(source)}
+                      >
+                        {source.active_jobs}
+                      </button>
+                    </td>
                     <td className="col-date">
                       <Age value={source.last_run_at} warnAfter={7} />
                     </td>
@@ -533,6 +543,9 @@ export function Sources() {
                     </td>
                     <td className="col-actions">
                       <div className="row-tight">
+                        <button className="btn btn-sm" onClick={() => onOpenJobs(source)}>
+                          Вакансии
+                        </button>
                         <button className="btn btn-sm" onClick={() => void runOne(source)}>
                           Прогнать
                         </button>

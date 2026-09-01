@@ -157,6 +157,14 @@ export default function App() {
     setTab("jobs")
   }
 
+  function openSourceJobs(source: { id: number; label: string }) {
+    setPreset((prev) => ({
+      filters: { source_id: source.id, source_label: source.label, min_score: 0, status: "any" },
+      seq: (prev?.seq ?? 0) + 1,
+    }))
+    setTab("jobs")
+  }
+
   const context = useMemo(
     () => ({
       notify,
@@ -234,7 +242,7 @@ export default function App() {
           {tab === "explore" ? <Explore onOpenJobs={openCompanyJobs} /> : null}
           {tab === "jobs" ? <Jobs key={preset?.seq ?? "all"} preset={preset?.filters} /> : null}
           {tab === "applied" ? <Applied /> : null}
-          {tab === "sources" ? <Sources /> : null}
+          {tab === "sources" ? <Sources onOpenJobs={openSourceJobs} /> : null}
           {tab === "profile" ? <Profile /> : null}
         </main>
 

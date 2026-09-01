@@ -52,7 +52,7 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
   // Unchecking "откликнулся" should not erase where the job stood before.
   const previous = useRef(new Map<string, JobStatus>())
 
-  const { status, min_score: minScore, tier, added_days: addedDays, added_from: addedFrom } = filters
+  const { status, min_score: minScore, tier, added_days: addedDays, added_from: addedFrom, source_id: sourceId } = filters
   const picked = filters.companies ?? []
 
   const load = useCallback(async (silent = false) => {
@@ -73,11 +73,11 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
   useEffect(() => {
     void (async () => {
       const result = await run(() =>
-        api.jobCompanies({ status, min_score: minScore, tier, added_days: addedDays, added_from: addedFrom }),
+        api.jobCompanies({ status, min_score: minScore, tier, added_days: addedDays, added_from: addedFrom, source_id: sourceId }),
       )
       if (result) setCompanies(result.companies)
     })()
-  }, [run, status, minScore, tier, addedDays, addedFrom, refreshTick])
+  }, [run, status, minScore, tier, addedDays, addedFrom, sourceId, refreshTick])
 
   async function setStatus(job: Job, next: JobStatus) {
     const result = await run(() => api.setJobStatus(job.id, next))
@@ -253,6 +253,19 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
           }
         />
 
+        {filters.source_id ? (
+          <button
+            type="button"
+            className="btn btn-sm"
+            title="Убрать фильтр по источнику"
+            onClick={() =>
+              setFilters((prev) => ({ ...prev, source_id: undefined, source_label: undefined }))
+            }
+          >
+            Источник: {filters.source_label ?? filters.source_id} ×
+          </button>
+        ) : null}
+
         <MultiSelect
           label="Компании"
           options={companies.map((item) => ({
@@ -277,6 +290,7 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
           <div className="row">
             <p className="muted">
               {jobs.length} {plural(jobs.length, ["вакансия", "вакансии", "вакансий"])}
+              {filters.source_label ? ` · ${filters.source_label}` : ""}
               {picked.length > 0 ? ` · компаний в фильтре: ${picked.length}` : ""}
               {batch ? ` · считаю ${batch.done} из ${batch.total}` : ""}
             </p>

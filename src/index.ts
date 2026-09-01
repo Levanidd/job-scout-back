@@ -288,6 +288,12 @@ function jobFilters(c: Context<{ Bindings: Bindings }>, withCompanies: boolean) 
     binds.push(...companies)
   }
 
+  const sourceId = Number(c.req.query("source_id") ?? 0)
+  if (sourceId) {
+    clauses.push("j.source_id = ?")
+    binds.push(sourceId)
+  }
+
   const addedDays = Number(c.req.query("added_days") ?? 0)
   if (addedDays > 0) {
     clauses.push(`j.first_seen_at >= datetime('now', ?)`)

@@ -69,6 +69,8 @@ export type JobFilters = {
   status?: string
   min_score?: number
   companies?: string[]
+  source_id?: number
+  source_label?: string
   tier?: string
   added_days?: number
   added_from?: string
@@ -81,6 +83,7 @@ function jobQuery(filters: JobFilters): string {
   if (filters.status) params.set("status", filters.status)
   if (filters.min_score) params.set("min_score", String(filters.min_score))
   if (filters.companies?.length) params.set("companies", filters.companies.join(","))
+  if (filters.source_id) params.set("source_id", String(filters.source_id))
   if (filters.tier) params.set("tier", filters.tier)
   if (filters.added_days) params.set("added_days", String(filters.added_days))
   if (filters.added_from) params.set("added_from", filters.added_from)
@@ -100,7 +103,7 @@ export const api = {
   },
 
   jobCompanies(filters: JobFilters): Promise<{ companies: CompanyFacet[] }> {
-    return request(`/jobs/companies${jobQuery({ ...filters, companies: undefined, sort: undefined, dir: undefined })}`)
+    return request(`/jobs/companies${jobQuery({ ...filters, companies: undefined, source_label: undefined, sort: undefined, dir: undefined })}`)
   },
 
   setJobStatus(id: string, status: JobStatus): Promise<{
