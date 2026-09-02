@@ -47,6 +47,7 @@ type TwinRow = {
   kind: string
   first_seen_at: string
   applied_at: string | null
+  viewed_at: string | null
   notes: string | null
   status: string
   score: number | null
@@ -125,7 +126,7 @@ async function upsertJobs(
 
     if (opening && !existing) {
       const twin = await env.DB.prepare(
-        `SELECT j.id, s.kind, j.first_seen_at, j.applied_at, j.notes, j.status,
+        `SELECT j.id, s.kind, j.first_seen_at, j.applied_at, j.viewed_at, j.notes, j.status,
                 j.score, j.score_reason, j.flags
          FROM jobs j JOIN sources s ON s.id = j.source_id
          WHERE j.dedup_key = ? AND j.closed_at IS NULL LIMIT 1`,
@@ -198,6 +199,7 @@ async function upsertJobs(
         `UPDATE jobs SET
            first_seen_at = CASE WHEN ? < first_seen_at THEN ? ELSE first_seen_at END,
            applied_at = COALESCE(?, applied_at),
+           viewed_at = COALESCE(?, viewed_at),
            notes = COALESCE(notes, ?),
            status = CASE WHEN ? = 1 THEN ? ELSE status END,
            score = COALESCE(score, ?),
@@ -209,6 +211,7 @@ async function upsertJobs(
           inherit.first_seen_at,
           inherit.first_seen_at,
           inherit.applied_at,
+          inherit.viewed_at,
           inherit.notes,
           keepUser ? 1 : 0,
           inherit.status,
@@ -850,7 +853,7 @@ export async function createManualJob(env: Bindings, input: ManualJobInput) {
     `SELECT j.id, j.source_id, j.company, j.company_key, j.title, j.location, j.url,
             j.posted_at, j.first_seen_at, j.last_seen_at, j.changed_at,
             j.salary_min, j.salary_max, j.salary_currency,
-            j.score, j.score_reason, j.flags, j.status, j.applied_at, j.notes, j.description,
+            j.score, j.score_reason, j.flags, j.status, j.applied_at, j.viewed_at, j.notes, j.description,
             s.tier, s.label as source_label
      FROM jobs j JOIN sources s ON s.id = j.source_id
      WHERE j.id = ?`,

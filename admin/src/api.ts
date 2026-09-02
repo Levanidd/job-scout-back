@@ -65,7 +65,7 @@ function post<T>(path: string, body?: unknown): Promise<T> {
   return request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined })
 }
 
-export type JobSort = "applied" | "title" | "company" | "score" | "posted" | "updated" | "added"
+export type JobSort = "applied" | "viewed" | "title" | "company" | "score" | "posted" | "updated" | "added"
 
 export type JobFilters = {
   status?: string
@@ -76,6 +76,7 @@ export type JobFilters = {
   tier?: string
   added_days?: number
   added_from?: string
+  viewed?: "yes" | "no"
   sort?: JobSort
   dir?: "asc" | "desc"
 }
@@ -89,6 +90,7 @@ function jobQuery(filters: JobFilters): string {
   if (filters.tier) params.set("tier", filters.tier)
   if (filters.added_days) params.set("added_days", String(filters.added_days))
   if (filters.added_from) params.set("added_from", filters.added_from)
+  if (filters.viewed) params.set("viewed", filters.viewed)
   if (filters.sort) params.set("sort", filters.sort)
   if (filters.dir) params.set("dir", filters.dir)
   const query = params.toString()
@@ -113,10 +115,24 @@ export const api = {
     status: JobStatus
     notes: string | null
     applied_at: string | null
+    viewed_at: string | null
   }> {
     return request(`/jobs/${encodeURIComponent(id)}`, {
       method: "PATCH",
       body: JSON.stringify({ status }),
+    })
+  },
+
+  setJobViewed(id: string, viewed: boolean): Promise<{
+    ok: true
+    status: JobStatus
+    notes: string | null
+    applied_at: string | null
+    viewed_at: string | null
+  }> {
+    return request(`/jobs/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ viewed }),
     })
   },
 
@@ -125,6 +141,7 @@ export const api = {
     status: JobStatus
     notes: string | null
     applied_at: string | null
+    viewed_at: string | null
   }> {
     return request(`/jobs/${encodeURIComponent(id)}`, {
       method: "PATCH",

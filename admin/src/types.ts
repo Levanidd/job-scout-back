@@ -31,6 +31,7 @@ export type Job = {
   flags: string | null
   status: JobStatus
   applied_at: string | null
+  viewed_at: string | null
   notes?: string | null
   description?: string | null
   tier: Tier

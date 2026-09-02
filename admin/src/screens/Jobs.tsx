@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react"
 
 import { api, type JobFilters, type JobSort } from "../api"
 import { useAction, useApp } from "../app-context"
+import { ConfirmDialog } from "../components/ConfirmDialog"
 import { MultiSelect } from "../components/MultiSelect"
 import { SortHeader } from "../components/SortHeader"
 import { Age, Empty, Flags, ScoreBadge, Skeletons, formatDate, formatSalary, plural } from "../components/common"
@@ -26,6 +27,7 @@ const ACTIONS: Array<{ status: JobStatus; label: string }> = [
 
 const DEFAULT_DIR: Record<JobSort, "asc" | "desc"> = {
   applied: "desc",
+  viewed: "desc",
   title: "asc",
   company: "asc",
   score: "desc",
@@ -48,11 +50,17 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
   const [open, setOpen] = useState<string | null>(null)
   const [scoring, setScoring] = useState<string | null>(null)
   const [batch, setBatch] = useState<{ done: number; total: number } | null>(null)
+  const [pending, setPending] = useState<
+    | { kind: "viewed"; job: Job; next: boolean }
+    | { kind: "applied-off"; job: Job }
+    | null
+  >(null)
+  const [confirming, setConfirming] = useState(false)
 
   // Unchecking "откликнулся" should not erase where the job stood before.
   const previous = useRef(new Map<string, JobStatus>())
 
-  const { status, min_score: minScore, tier, added_days: addedDays, added_from: addedFrom, source_id: sourceId } = filters
+  const { status, min_score: minScore, tier, added_days: addedDays, added_from: addedFrom, source_id: sourceId, viewed } = filters
   const picked = filters.companies ?? []
 
   const load = useCallback(async (silent = false) => {
@@ -73,21 +81,28 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
   useEffect(() => {
     void (async () => {
       const result = await run(() =>
-        api.jobCompanies({ status, min_score: minScore, tier, added_days: addedDays, added_from: addedFrom, source_id: sourceId }),
+        api.jobCompanies({ status, min_score: minScore, tier, added_days: addedDays, added_from: addedFrom, source_id: sourceId, viewed }),
       )
       if (result) setCompanies(result.companies)
     })()
-  }, [run, status, minScore, tier, addedDays, addedFrom, sourceId, refreshTick])
+  }, [run, status, minScore, tier, addedDays, addedFrom, sourceId, viewed, refreshTick])
+
+  function patchJob(id: string, next: Partial<Job>) {
+    setJobs(
+      (prev) => {
+        const updated = prev?.map((item) => (item.id === id ? { ...item, ...next } : item)) ?? null
+        if (!updated) return updated
+        if (filters.viewed === "yes") return updated.filter((item) => item.viewed_at)
+        if (filters.viewed === "no") return updated.filter((item) => !item.viewed_at)
+        return updated
+      },
+    )
+  }
 
   async function setStatus(job: Job, next: JobStatus) {
     const result = await run(() => api.setJobStatus(job.id, next))
     if (!result) return
-    setJobs(
-      (prev) =>
-        prev?.map((item) =>
-          item.id === job.id ? { ...item, status: result.status, applied_at: result.applied_at } : item,
-        ) ?? null,
-    )
+    patchJob(job.id, { status: result.status, applied_at: result.applied_at, viewed_at: result.viewed_at })
   }
 
   function inPipeline(job: Job): boolean {
@@ -152,11 +167,28 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
 
   async function toggleApplied(job: Job) {
     if (inPipeline(job)) {
-      await setStatus(job, previous.current.get(job.id) ?? "saved")
+      setPending({ kind: "applied-off", job })
       return
     }
     previous.current.set(job.id, job.status)
     await setStatus(job, "applied")
+  }
+
+  function requestViewed(job: Job, next: boolean) {
+    setPending({ kind: "viewed", job, next })
+  }
+
+  async function confirmPending() {
+    if (!pending) return
+    setConfirming(true)
+    if (pending.kind === "applied-off") {
+      await setStatus(pending.job, previous.current.get(pending.job.id) ?? "saved")
+    } else {
+      const result = await run(() => api.setJobViewed(pending.job.id, pending.next))
+      if (result) patchJob(pending.job.id, { viewed_at: result.viewed_at })
+    }
+    setConfirming(false)
+    setPending(null)
   }
 
   function sortBy(column: JobSort) {
@@ -216,6 +248,21 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
               {STATUS_LABELS[item]}
             </option>
           ))}
+        </select>
+
+        <select
+          className="select"
+          value={filters.viewed ?? ""}
+          onChange={(event) =>
+            setFilters((prev) => ({
+              ...prev,
+              viewed: event.target.value === "yes" || event.target.value === "no" ? event.target.value : undefined,
+            }))
+          }
+        >
+          <option value="">Просмотренные и нет</option>
+          <option value="no">Только непросмотренные</option>
+          <option value="yes">Только просмотренные</option>
         </select>
 
         <select
@@ -317,6 +364,15 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
                     className="col-check"
                     title="Отметьте, если откликнулись"
                   />
+                  <SortHeader
+                    column="viewed"
+                    label="Смотрел"
+                    sort={sort}
+                    dir={dir}
+                    onSort={sortBy}
+                    className="col-check"
+                    title="Отметьте, если уже смотрели вакансию"
+                  />
                   <SortHeader column="title" label="Вакансия" sort={sort} dir={dir} onSort={sortBy} />
                   <SortHeader column="company" label="Компания" sort={sort} dir={dir} onSort={sortBy} className="col-company" />
                   <SortHeader column="score" label="Score" sort={sort} dir={dir} onSort={sortBy} className="col-score" />
@@ -354,7 +410,7 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
                   const pay = formatSalary(job.salary_min, job.salary_max, job.salary_currency)
                   return (
                   <Fragment key={job.id}>
-                    <tr className={`${inPipeline(job) ? "is-applied" : ""} ${scoring === job.id || batch ? "is-busy" : ""}`.trim()}>
+                    <tr className={`${job.viewed_at && !inPipeline(job) ? "is-viewed" : ""} ${inPipeline(job) ? "is-applied" : ""} ${scoring === job.id || batch ? "is-busy" : ""}`.trim()}>
                       <td className="col-check">
                         <input
                           type="checkbox"
@@ -362,6 +418,15 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
                           checked={inPipeline(job)}
                           aria-label={`Откликнулся: ${job.title}`}
                           onChange={() => void toggleApplied(job)}
+                        />
+                      </td>
+                      <td className="col-check">
+                        <input
+                          type="checkbox"
+                          className="checkbox"
+                          checked={Boolean(job.viewed_at)}
+                          aria-label={`Просмотрено: ${job.title}`}
+                          onChange={(event) => requestViewed(job, event.target.checked)}
                         />
                       </td>
                       <td>
@@ -412,7 +477,7 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
 
                     {open === job.id ? (
                       <tr className="row-details">
-                        <td colSpan={8}>
+                        <td colSpan={9}>
                           {job.score_reason ? (
                             <p className="muted">
                               {job.score_reason === "prefilter"
@@ -423,6 +488,7 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
                           <Flags raw={job.flags} />
                           <div className="row-tight" style={{ flexWrap: "wrap" }}>
                             <span className="badge badge-neutral">{STATUS_LABELS[job.status]}</span>
+                            {job.viewed_at ? <span className="badge badge-neutral">просмотрена</span> : null}
                             <span className="badge badge-neutral">
                               {job.tier === "watchlist" ? "watchlist" : "discovery"}
                             </span>
@@ -461,6 +527,36 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
           </div>
         </>
       )}
+
+      {pending ? (
+        <ConfirmDialog
+          title={
+            pending.kind === "applied-off"
+              ? "Снять «подался»?"
+              : pending.next
+                ? "Отметить как просмотренную?"
+                : "Снять «просмотрено»?"
+          }
+          confirmLabel={pending.kind === "applied-off" || !pending.next ? "Снять" : "Отметить"}
+          busy={confirming}
+          onCancel={() => !confirming && setPending(null)}
+          onConfirm={() => void confirmPending()}
+        >
+          {pending.kind === "applied-off" ? (
+            <>
+              Вакансия <b>{pending.job.title}</b> пропадёт из раздела «Подался».
+            </>
+          ) : pending.next ? (
+            <>
+              Пометить <b>{pending.job.title}</b> как просмотренную.
+            </>
+          ) : (
+            <>
+              Снять признак просмотрено с <b>{pending.job.title}</b>.
+            </>
+          )}
+        </ConfirmDialog>
+      ) : null}
     </>
   )
 }

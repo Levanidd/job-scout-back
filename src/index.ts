@@ -347,11 +347,16 @@ async function jobFilters(c: Context<{ Bindings: Bindings }>, withCompanies: boo
     binds.push(`${addedFrom} 00:00:00`)
   }
 
+  const viewed = c.req.query("viewed")
+  if (viewed === "yes") clauses.push("j.viewed_at IS NOT NULL")
+  if (viewed === "no") clauses.push("j.viewed_at IS NULL")
+
   return { clauses: clauses.join(" AND "), binds }
 }
 
 const JOB_ORDER: Record<string, string> = {
   applied: `(j.applied_at IS NOT NULL)`,
+  viewed: `(j.viewed_at IS NOT NULL)`,
   title: "j.title COLLATE NOCASE",
   company: "j.company COLLATE NOCASE",
   score: "j.score",
@@ -369,7 +374,7 @@ function jobOrder(c: Context<{ Bindings: Bindings }>): string {
 // Descriptions run to kilobytes each and the list never shows them.
 const JOB_COLUMNS = `j.id, j.source_id, j.company, j.company_key, j.title, j.location, j.url,
   j.posted_at, j.first_seen_at, j.last_seen_at, j.changed_at, j.salary_min, j.salary_max, j.salary_currency,
-  j.score, j.score_reason, j.flags, j.status, j.applied_at`
+  j.score, j.score_reason, j.flags, j.status, j.applied_at, j.viewed_at`
 
 app.get("/api/applied", async (c) => {
   const status = c.req.query("status") ?? ""
@@ -468,16 +473,21 @@ app.post("/api/jobs/score", async (c) => {
 
 app.patch("/api/jobs/:id", async (c) => {
   const id = c.req.param("id")
-  const body = await c.req.json<{ status?: string; notes?: string }>()
-  const current = await c.env.DB.prepare(`SELECT status, applied_at FROM jobs WHERE id = ?`).bind(id).first<{
+  const body = await c.req.json<{ status?: string; notes?: string; viewed?: boolean }>()
+  const current = await c.env.DB.prepare(
+    `SELECT status, applied_at, viewed_at FROM jobs WHERE id = ?`,
+  ).bind(id).first<{
     status: string
     applied_at: string | null
+    viewed_at: string | null
   }>()
   if (!current) return c.json({ error: "not found" }, 404)
 
   const allowed = ["new", "notified", "saved", "applied", "interview", "rejected", "ignored", "off_profile"]
   if (body.status && !allowed.includes(body.status)) return c.json({ error: "bad status" }, 400)
-  if (body.status === undefined && body.notes === undefined) return c.json({ error: "nothing to update" }, 400)
+  if (body.status === undefined && body.notes === undefined && typeof body.viewed !== "boolean") {
+    return c.json({ error: "nothing to update" }, 400)
+  }
 
   const sets: string[] = []
   const binds: (string | null)[] = []
@@ -494,14 +504,23 @@ app.patch("/api/jobs/:id", async (c) => {
     sets.push("notes = ?")
     binds.push(body.notes)
   }
+  if (typeof body.viewed === "boolean") {
+    sets.push(body.viewed ? "viewed_at = COALESCE(viewed_at, datetime('now'))" : "viewed_at = NULL")
+  }
   binds.push(id)
   await c.env.DB.prepare(`UPDATE jobs SET ${sets.join(", ")} WHERE id = ?`)
     .bind(...binds)
     .run()
-  const row = await c.env.DB.prepare(`SELECT status, notes, applied_at FROM jobs WHERE id = ?`)
+  const row = await c.env.DB.prepare(`SELECT status, notes, applied_at, viewed_at FROM jobs WHERE id = ?`)
     .bind(id)
-    .first<{ status: string; notes: string | null; applied_at: string | null }>()
-  return c.json({ ok: true, status: row?.status ?? body.status ?? current.status, notes: row?.notes ?? null, applied_at: row?.applied_at ?? null })
+    .first<{ status: string; notes: string | null; applied_at: string | null; viewed_at: string | null }>()
+  return c.json({
+    ok: true,
+    status: row?.status ?? body.status ?? current.status,
+    notes: row?.notes ?? null,
+    applied_at: row?.applied_at ?? null,
+    viewed_at: row?.viewed_at ?? null,
+  })
 })
 
 app.post("/api/jobs/:id/score", async (c) => {
