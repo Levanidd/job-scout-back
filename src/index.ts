@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono"
 import { cors } from "hono/cors"
 
 import { adapters } from "./adapters"
-import { addDiscovered, notifyNew, pickSources, prefilterAndScore, reapplyPrefilter, runSource, scoreJobsByIds, scoreOneJob, trackedCompanyKeys } from "./ingest"
+import { addDiscovered, createManualJob, notifyNew, pickSources, prefilterAndScore, reapplyPrefilter, runSource, scoreJobsByIds, scoreOneJob, trackedCompanyKeys } from "./ingest"
 import { enqueueTick, loadCycleView, requestOrigin, startCycle, tickOnce, resumeStuckCycle } from "./cycle"
 import { detectUrl } from "./detect"
 import { ensureExploreSources, listExploreBoards } from "./explore"
@@ -61,7 +61,7 @@ app.get("/api/sources", async (c) => {
        JOIN (SELECT source_id, MAX(id) AS id FROM source_runs GROUP BY source_id) latest
          ON latest.id = r.id
      ) r ON r.source_id = s.id
-     WHERE s.deleted_at IS NULL
+     WHERE s.deleted_at IS NULL AND s.provider != 'manual'
      ORDER BY s.created_at DESC, s.id DESC`,
   ).all()
   return c.json({ sources: rows.results })
@@ -392,6 +392,28 @@ app.get("/api/applied", async (c) => {
     LIMIT 200`
   const rows = await c.env.DB.prepare(sql).bind(...binds).all()
   return c.json({ jobs: rows.results })
+})
+
+app.post("/api/applied", async (c) => {
+  const body = await c.req.json<Record<string, unknown>>().catch(() => ({}) as Record<string, unknown>)
+  try {
+    const job = await createManualJob(c.env, {
+      title: String(body.title ?? ""),
+      company: String(body.company ?? ""),
+      url: String(body.url ?? ""),
+      location: typeof body.location === "string" ? body.location : undefined,
+      description: typeof body.description === "string" ? body.description : undefined,
+      notes: typeof body.notes === "string" ? body.notes : undefined,
+      salary_min: body.salary_min,
+      salary_max: body.salary_max,
+      salary_currency: typeof body.salary_currency === "string" ? body.salary_currency : undefined,
+      status: typeof body.status === "string" ? body.status : undefined,
+      applied_at: typeof body.applied_at === "string" ? body.applied_at : undefined,
+    })
+    return c.json({ job }, 201)
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : String(error) }, 400)
+  }
 })
 
 app.get("/api/jobs", async (c) => {

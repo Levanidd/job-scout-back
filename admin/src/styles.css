@@ -243,6 +243,31 @@ a:hover {
   padding: 12px 14px;
 }
 
+.form-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.form-salary {
+  display: grid;
+  gap: 12px;
+}
+
+@media (min-width: 720px) {
+  .form-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .form-span,
+  .form-salary {
+    grid-column: 1 / -1;
+  }
+
+  .form-salary {
+    grid-template-columns: 1fr 1fr 120px;
+  }
+}
+
 .textarea-notes {
   min-height: 120px;
   font-family: inherit;

@@ -22,6 +22,7 @@ import { justjoin } from "./justjoin"
 import { landingjobs } from "./landingjobs"
 import { lever } from "./lever"
 import { manfred } from "./manfred"
+import { manual } from "./manual"
 import { nodesk } from "./nodesk"
 import { nofluffjobs } from "./nofluffjobs"
 import { personio } from "./personio"
@@ -85,6 +86,8 @@ export const adapters: Adapter[] = [
   joinup,
   // Must precede rss, whose detect() would claim /remote-jobs.rss first.
   weworkremotely,
+  // Never scraped; exists so hand-entered applications have a source_id.
+  manual,
   // rss matches on a generic path pattern, so it stays the last resort.
   rss,
 ]

@@ -141,6 +141,22 @@ export const api = {
     return request(`/applied${query}`)
   },
 
+  createApplied(body: {
+    title: string
+    company: string
+    url: string
+    location?: string
+    description?: string
+    notes?: string
+    salary_min?: number | null
+    salary_max?: number | null
+    salary_currency?: string
+    status?: "applied" | "interview"
+    applied_at?: string
+  }): Promise<{ job: Job }> {
+    return request("/applied", { method: "POST", body: JSON.stringify(body) })
+  },
+
   scoreJob(id: string): Promise<{
     id: string
     score: number

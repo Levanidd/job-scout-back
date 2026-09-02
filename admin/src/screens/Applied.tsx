@@ -5,6 +5,12 @@ import { useAction, useApp } from "../app-context"
 import { Age, Empty, Field, ScoreBadge, Skeletons, formatDate, formatSalary } from "../components/common"
 import type { Job, JobStatus } from "../types"
 
+function todayLocal(): string {
+  const date = new Date()
+  const pad = (value: number) => String(value).padStart(2, "0")
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
 const PIPE: Array<{ id: "" | "applied" | "interview" | "rejected"; label: string }> = [
   { id: "", label: "Все" },
   { id: "applied", label: "Подался" },
@@ -73,12 +79,182 @@ function Notes({ job, onSaved }: { job: Job; onSaved: (notes: string) => void })
   )
 }
 
+function ManualJobForm({ onCreated, onCancel }: { onCreated: (job: Job) => void; onCancel: () => void }) {
+  const run = useAction()
+  const [busy, setBusy] = useState(false)
+  const [title, setTitle] = useState("")
+  const [company, setCompany] = useState("")
+  const [url, setUrl] = useState("")
+  const [location, setLocation] = useState("")
+  const [appliedAt, setAppliedAt] = useState(todayLocal())
+  const [status, setStatus] = useState<"applied" | "interview">("applied")
+  const [salaryMin, setSalaryMin] = useState("")
+  const [salaryMax, setSalaryMax] = useState("")
+  const [currency, setCurrency] = useState("EUR")
+  const [description, setDescription] = useState("")
+  const [notes, setNotes] = useState("")
+
+  async function submit() {
+    setBusy(true)
+    const result = await run(() =>
+      api.createApplied({
+        title,
+        company,
+        url,
+        location: location || undefined,
+        description: description || undefined,
+        notes: notes || undefined,
+        salary_min: salaryMin ? Number(salaryMin) : undefined,
+        salary_max: salaryMax ? Number(salaryMax) : undefined,
+        salary_currency: currency,
+        status,
+        applied_at: appliedAt || undefined,
+      }),
+    )
+    setBusy(false)
+    if (result) onCreated(result.job)
+  }
+
+  return (
+    <article className="card">
+      <h3 className="card-title">Своя вакансия</h3>
+      <p className="card-sub">
+        Для позиций без ATS: заполни карточку и приложи ссылку. Она сразу попадёт в «Подался».
+      </p>
+
+      <form
+        className="form-grid"
+        onSubmit={(event) => {
+          event.preventDefault()
+          void submit()
+        }}
+      >
+        <div className="form-span">
+          <Field label="Ссылка на позицию">
+            <input
+              className="input"
+              type="url"
+              required
+              placeholder="https://"
+              value={url}
+              onChange={(event) => setUrl(event.target.value)}
+            />
+          </Field>
+        </div>
+        <Field label="Должность">
+          <input
+            className="input"
+            required
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+          />
+        </Field>
+        <Field label="Компания">
+          <input
+            className="input"
+            required
+            value={company}
+            onChange={(event) => setCompany(event.target.value)}
+          />
+        </Field>
+        <Field label="Локация">
+          <input
+            className="input"
+            placeholder="Berlin · Remote"
+            value={location}
+            onChange={(event) => setLocation(event.target.value)}
+          />
+        </Field>
+        <Field label="Дата отклика">
+          <input
+            className="input"
+            type="date"
+            value={appliedAt}
+            onChange={(event) => setAppliedAt(event.target.value)}
+          />
+        </Field>
+        <div className="form-salary">
+          <Field label="Зарплата от, в год">
+            <input
+              className="input"
+              type="number"
+              min={0}
+              step={1000}
+              placeholder="80000"
+              value={salaryMin}
+              onChange={(event) => setSalaryMin(event.target.value)}
+            />
+          </Field>
+          <Field label="До">
+            <input
+              className="input"
+              type="number"
+              min={0}
+              step={1000}
+              placeholder="110000"
+              value={salaryMax}
+              onChange={(event) => setSalaryMax(event.target.value)}
+            />
+          </Field>
+          <Field label="Валюта">
+            <select className="select" value={currency} onChange={(event) => setCurrency(event.target.value)}>
+              <option value="EUR">EUR</option>
+              <option value="USD">USD</option>
+              <option value="GBP">GBP</option>
+              <option value="CHF">CHF</option>
+            </select>
+          </Field>
+        </div>
+        <Field label="Статус">
+          <select
+            className="select"
+            value={status}
+            onChange={(event) => setStatus(event.target.value as "applied" | "interview")}
+          >
+            <option value="applied">Подался</option>
+            <option value="interview">Интервью</option>
+          </select>
+        </Field>
+        <div className="form-span">
+          <Field label="Описание">
+            <textarea
+              className="textarea textarea-notes"
+              placeholder="Что требует роль, стек, условия…"
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+            />
+          </Field>
+        </div>
+        <div className="form-span">
+          <Field label="Заметки">
+            <textarea
+              className="textarea textarea-notes"
+              placeholder="С кем говорил, что отправил, следующие шаги…"
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+            />
+          </Field>
+        </div>
+        <div className="row form-span">
+          <button className="btn btn-primary btn-sm" type="submit" disabled={busy}>
+            {busy ? "Сохраняю…" : "Добавить"}
+          </button>
+          <button className="btn btn-ghost btn-sm" type="button" disabled={busy} onClick={onCancel}>
+            Отмена
+          </button>
+        </div>
+      </form>
+    </article>
+  )
+}
+
 export function Applied() {
   const run = useAction()
   const { refreshTick, refresh } = useApp()
   const [status, setStatus] = useState<"" | "applied" | "interview" | "rejected">("")
   const [jobs, setJobs] = useState<Job[] | null>(null)
   const [open, setOpen] = useState<Job | null>(null)
+  const [composing, setComposing] = useState(false)
 
   const load = useCallback(
     async (silent = false) => {
@@ -123,6 +299,26 @@ export function Applied() {
           .filter((item) => !status || item.status === status) ?? null,
     )
     if (status && result.status !== status) setOpen(null)
+  }
+
+  if (composing) {
+    return (
+      <>
+        <div className="row">
+          <button className="btn btn-ghost btn-sm" onClick={() => setComposing(false)}>
+            ← К списку
+          </button>
+        </div>
+        <ManualJobForm
+          onCancel={() => setComposing(false)}
+          onCreated={(job) => {
+            setComposing(false)
+            setJobs((prev) => [job, ...(prev ?? []).filter((item) => item.id !== job.id)])
+            setOpen(job)
+          }}
+        />
+      </>
+    )
   }
 
   if (open) {
@@ -195,6 +391,9 @@ export function Applied() {
             {item.label}
           </button>
         ))}
+        <button className="btn btn-primary btn-sm" onClick={() => setComposing(true)}>
+          Добавить вакансию
+        </button>
         <button className="btn btn-ghost btn-sm" onClick={() => refresh()}>
           Обновить
         </button>
@@ -205,7 +404,7 @@ export function Applied() {
       ) : jobs.length === 0 ? (
         <Empty
           title="Пока пусто"
-          hint="Отметьте «Подался» в списке вакансий. Карточка с описанием и заметками открывается из таблицы."
+          hint="Отметьте «Подался» в списке вакансий или добавьте позицию вручную, если её нет на ATS."
         />
       ) : (
         <div className="table-wrap">

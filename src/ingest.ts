@@ -3,6 +3,7 @@ import { companyKey, dedupKey, jobHash } from "./company-key"
 import { detectUrl } from "./detect"
 import { renderDigest, sendTelegram } from "./notify"
 import { clipDescription, passesPrefilter } from "./prefilter"
+import { toSalary } from "./salary"
 import { scoreInBatches, scoreJobs, type ScoreInput } from "./scoring"
 import { resolveCompanyBlacklist, resolvePrefilter, resolveScoringConfig, sqlExcludeCompanyKeys } from "./settings"
 import type { Bindings, RawJob, SourceRow } from "./types"
@@ -725,4 +726,137 @@ export async function addDiscovered(env: Bindings, key: string): Promise<{ added
   }
   await env.DB.prepare(`UPDATE discovered_companies SET state = 'added' WHERE company_key = ?`).bind(key).run()
   return { added: false, ats: null }
+}
+
+export type ManualJobInput = {
+  title: string
+  company: string
+  url: string
+  location?: string
+  description?: string
+  notes?: string
+  salary_min?: unknown
+  salary_max?: unknown
+  salary_currency?: string
+  status?: string
+  applied_at?: string
+}
+
+function parseAppliedAt(raw: string | undefined): string | null {
+  const value = raw?.trim() ?? ""
+  if (!value) return null
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return `${value} 12:00:00`
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(value)) {
+    return value.length === 16 ? `${value}:00` : value
+  }
+  return null
+}
+
+function parseJobUrl(raw: string): string | null {
+  try {
+    const url = new URL(raw.trim())
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null
+    return url.href
+  } catch {
+    return null
+  }
+}
+
+async function ensureManualSource(env: Bindings): Promise<number> {
+  const existing = await env.DB.prepare(
+    `SELECT id FROM sources WHERE provider = 'manual' AND token = 'manual'`,
+  ).first<{ id: number }>()
+  if (existing) return existing.id
+  await env.DB.prepare(
+    `INSERT INTO sources (kind, tier, label, provider, token, enabled)
+     VALUES ('company', 'watchlist', 'Вручную', 'manual', 'manual', 0)`,
+  ).run()
+  const created = await env.DB.prepare(
+    `SELECT id FROM sources WHERE provider = 'manual' AND token = 'manual'`,
+  ).first<{ id: number }>()
+  if (!created) throw new Error("could not create manual source")
+  return created.id
+}
+
+export async function createManualJob(env: Bindings, input: ManualJobInput) {
+  const title = input.title.trim()
+  const company = input.company.trim()
+  const url = parseJobUrl(input.url)
+  if (!title || !company) throw new Error("Нужны должность и компания")
+  if (!url) throw new Error("Нужна ссылка http(s) на позицию")
+
+  const status = input.status === "interview" ? "interview" : "applied"
+  const sourceId = await ensureManualSource(env)
+  const id = await jobHash("manual", "manual", url)
+  const key = companyKey(company)
+  const opening = dedupKey(company, title) || null
+  const description = clipDescription(input.description) ?? null
+  const notes = input.notes?.trim() || null
+  const salary = toSalary({
+    min: input.salary_min,
+    max: input.salary_max,
+    currency: input.salary_currency,
+  })
+  const appliedAt = parseAppliedAt(input.applied_at)
+
+  await env.DB.prepare(
+    `INSERT INTO jobs (
+       id, source_id, external_id, company, company_key, title, location, url, description,
+       posted_at, salary_min, salary_max, salary_currency, dedup_key,
+       first_seen_at, last_seen_at, changed_at, closed_at, status, notes, applied_at
+     ) VALUES (
+       ?, ?, ?, ?, ?, ?, ?, ?, ?,
+       NULL, ?, ?, ?, ?,
+       datetime('now'), datetime('now'), datetime('now'), NULL, ?, ?, COALESCE(?, datetime('now'))
+     )
+     ON CONFLICT(id) DO UPDATE SET
+       title = excluded.title,
+       company = excluded.company,
+       company_key = excluded.company_key,
+       location = excluded.location,
+       description = COALESCE(excluded.description, jobs.description),
+       salary_min = COALESCE(excluded.salary_min, jobs.salary_min),
+       salary_max = COALESCE(excluded.salary_max, jobs.salary_max),
+       salary_currency = COALESCE(excluded.salary_currency, jobs.salary_currency),
+       dedup_key = excluded.dedup_key,
+       notes = COALESCE(excluded.notes, jobs.notes),
+       status = excluded.status,
+       applied_at = COALESCE(jobs.applied_at, excluded.applied_at),
+       closed_at = NULL,
+       last_seen_at = datetime('now'),
+       changed_at = datetime('now')`,
+  )
+    .bind(
+      id,
+      sourceId,
+      url,
+      company,
+      key,
+      title,
+      input.location?.trim() || null,
+      url,
+      description,
+      salary?.min ?? null,
+      salary?.max ?? null,
+      salary?.currency || null,
+      opening,
+      status,
+      notes,
+      appliedAt,
+    )
+    .run()
+
+  const job = await env.DB.prepare(
+    `SELECT j.id, j.source_id, j.company, j.company_key, j.title, j.location, j.url,
+            j.posted_at, j.first_seen_at, j.last_seen_at, j.changed_at,
+            j.salary_min, j.salary_max, j.salary_currency,
+            j.score, j.score_reason, j.flags, j.status, j.applied_at, j.notes, j.description,
+            s.tier, s.label as source_label
+     FROM jobs j JOIN sources s ON s.id = j.source_id
+     WHERE j.id = ?`,
+  )
+    .bind(id)
+    .first()
+  if (!job) throw new Error("not found")
+  return job
 }
