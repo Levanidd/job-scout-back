@@ -12,10 +12,10 @@ binding = "DB"
 database_name = "job-scout"
 database_id = "111a2873-66df-4e82-850f-4b812282577e"
 
-# Manual runs only: the admin "Прогнать" button hits POST /api/run, then the
-# Worker continues in waitUntil so the browser tab does not have to stay open.
+# Manual start: admin "Прогнать" → POST /api/run. Cron does not start a
+# cycle; it only continues one that waitUntil dropped mid-walk.
 [triggers]
-crons = []
+crons = ["* * * * *"]
 
 [vars]
 ENVIRONMENT = "development"

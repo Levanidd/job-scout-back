@@ -3,7 +3,7 @@ import { cors } from "hono/cors"
 
 import { adapters } from "./adapters"
 import { addDiscovered, notifyNew, pickSources, prefilterAndScore, reapplyPrefilter, runSource, scoreJobsByIds, scoreOneJob, trackedCompanyKeys } from "./ingest"
-import { enqueueTick, loadCycleView, requestOrigin, startCycle, tickOnce, walkCycle } from "./cycle"
+import { enqueueTick, loadCycleView, requestOrigin, startCycle, tickOnce, resumeStuckCycle } from "./cycle"
 import { detectUrl } from "./detect"
 import { ensureExploreSources, listExploreBoards } from "./explore"
 import { isThinkingLevel, listModels, validateModel, type ThinkingLevel } from "./scoring"
@@ -615,15 +615,10 @@ app.onError((err, c) => {
   return c.json({ error: message }, 500)
 })
 
-// Cron is off; if it comes back, walk the same hop machine the admin starts.
+// Cron never starts a run. It only continues one the isolate dropped.
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledEvent, env: Bindings, ctx: ExecutionContext) {
-    ctx.waitUntil(
-      (async () => {
-        await startCycle(env)
-        await walkCycle(env)
-      })(),
-    )
+    ctx.waitUntil(resumeStuckCycle(env))
   },
 }

@@ -26,8 +26,6 @@ const TABS: Array<{ id: TabId; label: string; icon: ComponentType<{ className?: 
 
 type Toast = { message: string; kind: ToastKind }
 
-const STALE_MS = 150_000
-
 function toRunState(cycle: Cycle): RunState {
   return {
     phase: cycle.phase,
@@ -39,13 +37,6 @@ function toRunState(cycle: Cycle): RunState {
     fresh: cycle.fresh,
     failed: cycle.failed,
   }
-}
-
-function isStale(updatedAt: string | null): boolean {
-  if (!updatedAt) return true
-  const iso = updatedAt.includes("T") ? updatedAt : `${updatedAt.replace(" ", "T")}Z`
-  const ms = Date.parse(iso)
-  return Number.isNaN(ms) || Date.now() - ms > STALE_MS
 }
 
 function doneMessage(cycle: Cycle): string {
@@ -138,9 +129,6 @@ export default function App() {
         try {
           const cycle = await api.cycle()
           applyCycle(cycle)
-          if (cycle.status === "running" && isStale(cycle.updated_at)) {
-            applyCycle(await api.startCycle())
-          }
         } catch (error) {
           if (error instanceof UnauthorizedError) logout()
         }
