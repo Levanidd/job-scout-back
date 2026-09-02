@@ -1,4 +1,4 @@
-import { notifyNew, pickSources, prefilterAndScore, runSource } from "./ingest"
+import { notifyNew, pickSources, prefilterAndScore, runSourceStep } from "./ingest"
 import type { Bindings, SourceRow } from "./types"
 
 const SCORE_CHUNK = 30
@@ -25,6 +25,8 @@ type CycleRow = {
   scored: number
   notified: number
   hops: number
+  chunk_offset: number
+  chunk_started_at: string | null
   error: string | null
   origin: string | null
   started_at: string | null
@@ -140,7 +142,8 @@ export async function startCycle(env: Bindings, origin?: string): Promise<CycleV
        status = 'running', phase = ?, source_ids = ?, cursor = 0,
        total = ?, source_total = ?, done = 0,
        current_label = NULL, current_id = NULL,
-       found = 0, fresh = 0, failed = 0, scored = 0, notified = 0, hops = 0,
+       found = 0, fresh = 0, failed = 0, scored = 0, notified = 0,
+       hops = 0, chunk_offset = 0, chunk_started_at = NULL,
        error = NULL, origin = ?,
        started_at = datetime('now'), updated_at = datetime('now'), finished_at = NULL
      WHERE id = 1`,
@@ -169,7 +172,8 @@ async function advance(env: Bindings, row: CycleRow): Promise<boolean> {
     if (row.cursor >= sources.length) {
       await env.DB.prepare(
         `UPDATE cycles SET phase = 'scoring', done = 0, total = 0,
-           current_label = NULL, current_id = NULL, updated_at = datetime('now')
+           current_label = NULL, current_id = NULL,
+           chunk_offset = 0, chunk_started_at = NULL, updated_at = datetime('now')
          WHERE id = 1`,
       ).run()
       return true
@@ -179,7 +183,8 @@ async function advance(env: Bindings, row: CycleRow): Promise<boolean> {
     if (!item) {
       await env.DB.prepare(
         `UPDATE cycles SET phase = 'scoring', done = 0, total = 0,
-           current_label = NULL, current_id = NULL, updated_at = datetime('now')
+           current_label = NULL, current_id = NULL,
+           chunk_offset = 0, chunk_started_at = NULL, updated_at = datetime('now')
          WHERE id = 1`,
       ).run()
       return true
@@ -192,12 +197,26 @@ async function advance(env: Bindings, row: CycleRow): Promise<boolean> {
 
     const source = await env.DB.prepare(`SELECT * FROM sources WHERE id = ?`).bind(item.id).first<SourceRow>()
     const run = source
-      ? await runSource(env, source)
-      : { ok: false, jobs_found: 0, jobs_new: 0 }
+      ? await runSourceStep(env, source, row.chunk_offset ?? 0, row.chunk_started_at)
+      : { ok: false, jobs_found: 0, jobs_new: 0, more: false, nextOffset: 0, runStart: row.chunk_started_at ?? "" }
+
+    if (run.ok && run.more) {
+      await env.DB.prepare(
+        `UPDATE cycles SET
+           chunk_offset = ?, chunk_started_at = ?,
+           found = found + ?, fresh = fresh + ?,
+           updated_at = datetime('now')
+         WHERE id = 1`,
+      )
+        .bind(run.nextOffset, run.runStart, run.jobs_found, run.jobs_new)
+        .run()
+      return true
+    }
 
     await env.DB.prepare(
       `UPDATE cycles SET
          cursor = cursor + 1, done = done + 1,
+         chunk_offset = 0, chunk_started_at = NULL,
          found = found + ?, fresh = fresh + ?, failed = failed + ?,
          current_label = NULL, current_id = NULL, updated_at = datetime('now')
        WHERE id = 1`,

@@ -5,7 +5,7 @@ import { renderDigest, sendTelegram } from "./notify"
 import { clipDescription, passesPrefilter } from "./prefilter"
 import { scoreInBatches, scoreJobs, type ScoreInput } from "./scoring"
 import { resolvePrefilter, resolveScoringConfig } from "./settings"
-import type { Bindings, SourceRow } from "./types"
+import type { Bindings, RawJob, SourceRow } from "./types"
 
 type RunResult = {
   source_id: number
@@ -41,6 +41,30 @@ export function isSuspicious(lastCount: number | null, found: number): boolean {
   return lastCount != null && lastCount > 0 && found < lastCount * 0.5
 }
 
+type TwinRow = {
+  id: string
+  kind: string
+  first_seen_at: string
+  applied_at: string | null
+  notes: string | null
+  status: string
+  score: number | null
+  score_reason: string | null
+  flags: string | null
+}
+
+export type SourceStep = RunResult & {
+  more: boolean
+  nextOffset: number
+  runStart: string
+}
+
+const SOURCE_CHUNK = 60
+const FETCH_CACHE_MS = 10 * 60_000
+
+type FetchCache = { key: string; jobs: RawJob[]; at: number }
+let fetchCache: FetchCache | null = null
+
 function timed<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(label)), ms)
@@ -57,185 +81,213 @@ function timed<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   })
 }
 
-export async function runSource(env: Bindings, source: SourceRow): Promise<RunResult> {
-  const started = Date.now()
-  const nowRow = await env.DB.prepare(`SELECT datetime('now') AS now`).first<{ now: string }>()
-  const runStart = nowRow?.now ?? new Date().toISOString().replace("T", " ").slice(0, 19)
-  try {
-    const adapter = getAdapter(source.provider)
-    const raw = await timed(
-      adapter.fetchJobs(source.token, env),
-      20_000,
-      `${source.label}: fetch timed out`,
-    )
-    const suspicious = isSuspicious(source.last_count, raw.length)
+async function loadBoard(
+  env: Bindings,
+  source: SourceRow,
+  runStart: string,
+): Promise<RawJob[]> {
+  const key = `${source.id}:${runStart}`
+  if (fetchCache && fetchCache.key === key && Date.now() - fetchCache.at < FETCH_CACHE_MS) {
+    return fetchCache.jobs
+  }
+  const adapter = getAdapter(source.provider)
+  const jobs = await timed(
+    adapter.fetchJobs(source.token, env),
+    20_000,
+    `${source.label}: fetch timed out`,
+  )
+  fetchCache = { key, jobs, at: Date.now() }
+  return jobs
+}
 
-    let jobsNew = 0
-    const watched = await watchedKeys(env.DB)
+function clearBoardCache(): void {
+  fetchCache = null
+}
 
-    for (const job of raw) {
-      const id = await jobHash(source.provider, source.token, job.externalId)
-      const company = job.company ?? source.label
-      const key = companyKey(company)
-      const opening = dedupKey(company, job.title) || null
-      const existing = await env.DB.prepare(`SELECT id FROM jobs WHERE id = ?`).bind(id).first<{ id: string }>()
+async function upsertJobs(
+  env: Bindings,
+  source: SourceRow,
+  jobs: RawJob[],
+  watched: Set<string>,
+): Promise<number> {
+  let jobsNew = 0
+  for (const job of jobs) {
+    const id = await jobHash(source.provider, source.token, job.externalId)
+    const company = job.company ?? source.label
+    const key = companyKey(company)
+    const opening = dedupKey(company, job.title) || null
+    const existing = await env.DB.prepare(`SELECT id FROM jobs WHERE id = ?`).bind(id).first<{ id: string }>()
 
-      type TwinRow = {
-        id: string
-        kind: string
-        first_seen_at: string
-        applied_at: string | null
-        notes: string | null
-        status: string
-        score: number | null
-        score_reason: string | null
-        flags: string | null
-      }
-      let inherit: TwinRow | null = null
+    let inherit: TwinRow | null = null
 
-      // Same role already stored from another board or another geo posting.
-      if (opening && !existing) {
-        const twin = await env.DB.prepare(
-          `SELECT j.id, s.kind, j.first_seen_at, j.applied_at, j.notes, j.status,
-                  j.score, j.score_reason, j.flags
-           FROM jobs j JOIN sources s ON s.id = j.source_id
-           WHERE j.dedup_key = ? AND j.closed_at IS NULL LIMIT 1`,
-        )
-          .bind(opening)
-          .first<TwinRow>()
-        if (twin) {
-          if (source.kind === "company" && twin.kind === "query") {
-            inherit = twin
-            await env.DB.prepare(`DELETE FROM jobs WHERE id = ?`).bind(twin.id).run()
-          } else {
-            continue
-          }
+    if (opening && !existing) {
+      const twin = await env.DB.prepare(
+        `SELECT j.id, s.kind, j.first_seen_at, j.applied_at, j.notes, j.status,
+                j.score, j.score_reason, j.flags
+         FROM jobs j JOIN sources s ON s.id = j.source_id
+         WHERE j.dedup_key = ? AND j.closed_at IS NULL LIMIT 1`,
+      )
+        .bind(opening)
+        .first<TwinRow>()
+      if (twin) {
+        if (source.kind === "company" && twin.kind === "query") {
+          inherit = twin
+          await env.DB.prepare(`DELETE FROM jobs WHERE id = ?`).bind(twin.id).run()
+        } else {
+          continue
         }
       }
+    }
 
-      if (!existing) jobsNew += 1
-      const description = clipDescription(job.description) ?? null
+    if (!existing) jobsNew += 1
+    const description = clipDescription(job.description) ?? null
+    await env.DB.prepare(
+      `INSERT INTO jobs (id, source_id, external_id, company, company_key, title, location, url, description, posted_at, salary_min, salary_max, salary_currency, dedup_key, first_seen_at, last_seen_at, changed_at, closed_at, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'), NULL, 'new')
+       ON CONFLICT(id) DO UPDATE SET
+         last_seen_at = datetime('now'),
+         title = excluded.title,
+         location = excluded.location,
+         dedup_key = excluded.dedup_key,
+         closed_at = NULL,
+         posted_at = COALESCE(excluded.posted_at, jobs.posted_at),
+         description = COALESCE(excluded.description, jobs.description),
+         salary_min = COALESCE(excluded.salary_min, jobs.salary_min),
+         salary_max = COALESCE(excluded.salary_max, jobs.salary_max),
+         salary_currency = COALESCE(excluded.salary_currency, jobs.salary_currency),
+         changed_at = CASE
+           WHEN excluded.title IS NOT jobs.title
+             OR IFNULL(excluded.location, '') IS NOT IFNULL(jobs.location, '')
+             OR (excluded.description IS NOT NULL AND excluded.description IS NOT IFNULL(jobs.description, ''))
+             OR (excluded.posted_at IS NOT NULL AND excluded.posted_at IS NOT IFNULL(jobs.posted_at, ''))
+             OR IFNULL(excluded.salary_min, -1) IS NOT IFNULL(jobs.salary_min, -1)
+             OR IFNULL(excluded.salary_max, -1) IS NOT IFNULL(jobs.salary_max, -1)
+           THEN datetime('now')
+           ELSE IFNULL(jobs.changed_at, jobs.first_seen_at)
+         END`,
+    )
+      .bind(
+        id,
+        source.id,
+        job.externalId,
+        company,
+        key,
+        job.title,
+        job.location ?? null,
+        job.url,
+        description,
+        job.postedAt ?? null,
+        job.salary?.min ?? null,
+        job.salary?.max ?? null,
+        job.salary?.currency || null,
+        opening,
+      )
+      .run()
+
+    if (inherit) {
+      const keepUser =
+        inherit.status === "applied" ||
+        inherit.status === "interview" ||
+        inherit.status === "rejected" ||
+        inherit.status === "saved" ||
+        inherit.status === "ignored"
       await env.DB.prepare(
-        `INSERT INTO jobs (id, source_id, external_id, company, company_key, title, location, url, description, posted_at, salary_min, salary_max, salary_currency, dedup_key, first_seen_at, last_seen_at, changed_at, closed_at, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'), NULL, 'new')
-         ON CONFLICT(id) DO UPDATE SET
-           last_seen_at = datetime('now'),
-           title = excluded.title,
-           location = excluded.location,
-           dedup_key = excluded.dedup_key,
-           closed_at = NULL,
-           posted_at = COALESCE(excluded.posted_at, jobs.posted_at),
-           description = COALESCE(excluded.description, jobs.description),
-           salary_min = COALESCE(excluded.salary_min, jobs.salary_min),
-           salary_max = COALESCE(excluded.salary_max, jobs.salary_max),
-           salary_currency = COALESCE(excluded.salary_currency, jobs.salary_currency),
-           changed_at = CASE
-             WHEN excluded.title IS NOT jobs.title
-               OR IFNULL(excluded.location, '') IS NOT IFNULL(jobs.location, '')
-               OR (excluded.description IS NOT NULL AND excluded.description IS NOT IFNULL(jobs.description, ''))
-               OR (excluded.posted_at IS NOT NULL AND excluded.posted_at IS NOT IFNULL(jobs.posted_at, ''))
-               OR IFNULL(excluded.salary_min, -1) IS NOT IFNULL(jobs.salary_min, -1)
-               OR IFNULL(excluded.salary_max, -1) IS NOT IFNULL(jobs.salary_max, -1)
-             THEN datetime('now')
-             ELSE IFNULL(jobs.changed_at, jobs.first_seen_at)
-           END`,
+        `UPDATE jobs SET
+           first_seen_at = CASE WHEN ? < first_seen_at THEN ? ELSE first_seen_at END,
+           applied_at = COALESCE(?, applied_at),
+           notes = COALESCE(notes, ?),
+           status = CASE WHEN ? = 1 THEN ? ELSE status END,
+           score = COALESCE(score, ?),
+           score_reason = COALESCE(score_reason, ?),
+           flags = COALESCE(flags, ?)
+         WHERE id = ?`,
       )
         .bind(
+          inherit.first_seen_at,
+          inherit.first_seen_at,
+          inherit.applied_at,
+          inherit.notes,
+          keepUser ? 1 : 0,
+          inherit.status,
+          inherit.score,
+          inherit.score_reason,
+          inherit.flags,
           id,
-          source.id,
-          job.externalId,
-          company,
-          key,
-          job.title,
-          job.location ?? null,
-          job.url,
-          description,
-          job.postedAt ?? null,
-          job.salary?.min ?? null,
-          job.salary?.max ?? null,
-          job.salary?.currency || null,
-          opening,
         )
         .run()
-
-      if (inherit) {
-        const keepUser =
-          inherit.status === "applied" ||
-          inherit.status === "interview" ||
-          inherit.status === "rejected" ||
-          inherit.status === "saved" ||
-          inherit.status === "ignored"
-        await env.DB.prepare(
-          `UPDATE jobs SET
-             first_seen_at = CASE WHEN ? < first_seen_at THEN ? ELSE first_seen_at END,
-             applied_at = COALESCE(?, applied_at),
-             notes = COALESCE(notes, ?),
-             status = CASE WHEN ? = 1 THEN ? ELSE status END,
-             score = COALESCE(score, ?),
-             score_reason = COALESCE(score_reason, ?),
-             flags = COALESCE(flags, ?)
-           WHERE id = ?`,
-        )
-          .bind(
-            inherit.first_seen_at,
-            inherit.first_seen_at,
-            inherit.applied_at,
-            inherit.notes,
-            keepUser ? 1 : 0,
-            inherit.status,
-            inherit.score,
-            inherit.score_reason,
-            inherit.flags,
-            id,
-          )
-          .run()
-      }
-
-      if (source.kind === "query" && key && !watched.has(key)) {
-        await env.DB.prepare(
-          `INSERT INTO discovered_companies (company_key, company, first_seen_at, hits, sample_url, state)
-           VALUES (?, ?, datetime('now'), 1, ?, 'new')
-           ON CONFLICT(company_key) DO UPDATE SET
-             hits = hits + 1,
-             sample_url = COALESCE(discovered_companies.sample_url, excluded.sample_url)`,
-        )
-          .bind(key, company, job.url)
-          .run()
-      }
     }
 
-    if (!suspicious) {
+    if (source.kind === "query" && key && !watched.has(key)) {
       await env.DB.prepare(
-        `UPDATE jobs SET closed_at = datetime('now')
-         WHERE source_id = ? AND closed_at IS NULL AND last_seen_at < ?`,
+        `INSERT INTO discovered_companies (company_key, company, first_seen_at, hits, sample_url, state)
+         VALUES (?, ?, datetime('now'), 1, ?, 'new')
+         ON CONFLICT(company_key) DO UPDATE SET
+           hits = hits + 1,
+           sample_url = COALESCE(discovered_companies.sample_url, excluded.sample_url)`,
       )
-        .bind(source.id, runStart)
+        .bind(key, company, job.url)
         .run()
     }
+  }
+  return jobsNew
+}
 
-    await env.DB.prepare(
-      `UPDATE sources SET last_count = ?, last_run_at = datetime('now') WHERE id = ?`,
-    )
-      .bind(raw.length, source.id)
-      .run()
+/** One slice of a board so waitUntil can finish. Same source continues on the next hop. */
+export async function runSourceStep(
+  env: Bindings,
+  source: SourceRow,
+  offset: number,
+  priorStart: string | null,
+): Promise<SourceStep> {
+  const started = Date.now()
+  const nowRow = await env.DB.prepare(`SELECT datetime('now') AS now`).first<{ now: string }>()
+  const runStart = priorStart ?? nowRow?.now ?? new Date().toISOString().replace("T", " ").slice(0, 19)
+  try {
+    const raw = await loadBoard(env, source, runStart)
+    const slice = raw.slice(offset, offset + SOURCE_CHUNK)
+    const watched = await watchedKeys(env.DB)
+    const jobsNew = await upsertJobs(env, source, slice, watched)
+    const nextOffset = offset + slice.length
+    const more = nextOffset < raw.length
+    const suspicious = isSuspicious(source.last_count, raw.length)
 
-    await env.DB.prepare(
-      `INSERT INTO source_runs (source_id, ok, jobs_found, jobs_new, error, duration_ms, suspicious)
-       VALUES (?, 1, ?, ?, NULL, ?, ?)`,
-    )
-      .bind(source.id, raw.length, jobsNew, Date.now() - started, suspicious ? 1 : 0)
-      .run()
+    if (!more) {
+      if (!suspicious) {
+        await env.DB.prepare(
+          `UPDATE jobs SET closed_at = datetime('now')
+           WHERE source_id = ? AND closed_at IS NULL AND last_seen_at < ?`,
+        )
+          .bind(source.id, runStart)
+          .run()
+      }
+      await env.DB.prepare(
+        `UPDATE sources SET last_count = ?, last_run_at = datetime('now') WHERE id = ?`,
+      )
+        .bind(raw.length, source.id)
+        .run()
+      await env.DB.prepare(
+        `INSERT INTO source_runs (source_id, ok, jobs_found, jobs_new, error, duration_ms, suspicious)
+         VALUES (?, 1, ?, ?, NULL, ?, ?)`,
+      )
+        .bind(source.id, raw.length, jobsNew, Date.now() - started, suspicious ? 1 : 0)
+        .run()
+      clearBoardCache()
+    }
 
     return {
       source_id: source.id,
       ok: true,
-      jobs_found: raw.length,
+      jobs_found: slice.length,
       jobs_new: jobsNew,
       error: null,
       duration_ms: Date.now() - started,
       suspicious: suspicious ? 1 : 0,
+      more,
+      nextOffset,
+      runStart,
     }
   } catch (error) {
+    clearBoardCache()
     const message = error instanceof Error ? error.message : String(error)
     await env.DB.prepare(`UPDATE sources SET last_run_at = datetime('now') WHERE id = ?`).bind(source.id).run()
     await env.DB.prepare(
@@ -252,7 +304,31 @@ export async function runSource(env: Bindings, source: SourceRow): Promise<RunRe
       error: message,
       duration_ms: Date.now() - started,
       suspicious: 0,
+      more: false,
+      nextOffset: 0,
+      runStart,
     }
+  }
+}
+
+export async function runSource(env: Bindings, source: SourceRow): Promise<RunResult> {
+  let offset = 0
+  let runStart: string | null = null
+  let last: SourceStep | null = null
+  let jobsNew = 0
+  let found = 0
+  do {
+    last = await runSourceStep(env, source, offset, runStart)
+    offset = last.nextOffset
+    runStart = last.runStart
+    jobsNew += last.jobs_new
+    found += last.jobs_found
+    if (!last.ok) return last
+  } while (last.more)
+  return {
+    ...last,
+    jobs_found: found,
+    jobs_new: jobsNew,
   }
 }
 
