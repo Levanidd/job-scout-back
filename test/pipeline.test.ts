@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import { companyKey } from "../src/company-key"
 import { isSuspicious } from "../src/ingest"
 import { passesPrefilter, sanitizeTags } from "../src/prefilter"
+import { sanitizeCompanyBlacklist } from "../src/settings"
 import { formatSalary, toSalary } from "../src/salary"
 import { localScore } from "../src/scoring"
 
@@ -39,6 +40,19 @@ describe("prefilter", () => {
 
   it("collapses duplicates and extra spaces in tags", () => {
     expect(sanitizeTags(["  Product   Manager  ", "product manager", "", 12])).toEqual(["Product Manager"])
+  })
+})
+
+describe("company blacklist", () => {
+  it("keeps display names and unique keys", () => {
+    expect(
+      sanitizeCompanyBlacklist([
+        { company_key: "Acme", company: "  Acme GmbH  " },
+        { company_key: "acme", company: "Acme" },
+        { company_key: "", company: "Nope" },
+        { company: "Missing key" },
+      ]),
+    ).toEqual([{ company_key: "acme", company: "Acme GmbH" }])
   })
 })
 

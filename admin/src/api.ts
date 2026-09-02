@@ -10,6 +10,7 @@ import type {
   JobStatus,
   ModelOption,
   RunResult,
+  BlacklistedCompany,
   PrefilterRules,
   Settings,
   Source,
@@ -237,7 +238,12 @@ export const api = {
     return post("/sources/bulk-detect", { urls })
   },
 
-  profile(): Promise<{ content: string; prefilter?: PrefilterRules }> {
+  profile(): Promise<{
+    content: string
+    prefilter?: PrefilterRules
+    blacklist?: BlacklistedCompany[]
+    companies?: BlacklistedCompany[]
+  }> {
     return request("/profile")
   },
 
@@ -251,6 +257,10 @@ export const api = {
     applied?: { dropped: number; restored: number }
   }> {
     return request("/profile", { method: "PUT", body: JSON.stringify({ prefilter }) })
+  },
+
+  saveBlacklist(blacklist: BlacklistedCompany[]): Promise<{ ok: true; blacklist: BlacklistedCompany[] }> {
+    return request("/profile", { method: "PUT", body: JSON.stringify({ blacklist }) })
   },
 
   rescore(): Promise<{ ok: true; scored: number }> {

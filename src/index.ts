@@ -7,7 +7,18 @@ import { enqueueTick, loadCycleView, requestOrigin, startCycle, tickOnce, resume
 import { detectUrl } from "./detect"
 import { ensureExploreSources, listExploreBoards } from "./explore"
 import { isThinkingLevel, listModels, validateModel, type ThinkingLevel } from "./scoring"
-import { SETTING_MODEL, SETTING_THINKING, resolvePrefilter, settingsView, writePrefilter, writeSetting } from "./settings"
+import {
+  SETTING_MODEL,
+  SETTING_THINKING,
+  listOpenCompanies,
+  resolveCompanyBlacklist,
+  resolvePrefilter,
+  settingsView,
+  sqlExcludeCompanyKeys,
+  writeCompanyBlacklist,
+  writePrefilter,
+  writeSetting,
+} from "./settings"
 import type { Bindings, SourceRow } from "./types"
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -236,8 +247,12 @@ app.get("/api/explore", async (c) => {
       providers: string
     }>()
 
+  const blocked = await resolveCompanyBlacklist(c.env)
+  const blockedKeys = new Set(blocked.map((item) => item.company_key))
   const watched = await trackedCompanyKeys(c.env.DB)
-  const companies = rows.results.filter((row) => row.company_key && !watched.has(row.company_key))
+  const companies = rows.results.filter(
+    (row) => row.company_key && !watched.has(row.company_key) && !blockedKeys.has(row.company_key),
+  )
   return c.json({ companies })
 })
 
@@ -273,9 +288,15 @@ app.post("/api/explore/:key/add", async (c) => {
   return c.json({ added: false, ats: null })
 })
 
-function jobFilters(c: Context<{ Bindings: Bindings }>, withCompanies: boolean) {
+async function jobFilters(c: Context<{ Bindings: Bindings }>, withCompanies: boolean) {
   const clauses = ["j.closed_at IS NULL"]
   const binds: (string | number)[] = []
+  const blocked = sqlExcludeCompanyKeys(
+    "j.company_key",
+    (await resolveCompanyBlacklist(c.env)).map((item) => item.company_key),
+  )
+  clauses.push(blocked.sql)
+  binds.push(...blocked.binds)
 
   // Nothing is dropped from the list for good: the default view hides what the
   // prefilter and the user set aside, `any` brings the whole pile back.
@@ -354,6 +375,12 @@ app.get("/api/applied", async (c) => {
   const status = c.req.query("status") ?? ""
   const clauses = ["j.applied_at IS NOT NULL"]
   const binds: string[] = []
+  const blocked = sqlExcludeCompanyKeys(
+    "j.company_key",
+    (await resolveCompanyBlacklist(c.env)).map((item) => item.company_key),
+  )
+  clauses.push(blocked.sql)
+  binds.push(...blocked.binds)
   if (status === "applied" || status === "interview" || status === "rejected") {
     clauses.push("j.status = ?")
     binds.push(status)
@@ -368,7 +395,7 @@ app.get("/api/applied", async (c) => {
 })
 
 app.get("/api/jobs", async (c) => {
-  const { clauses, binds } = jobFilters(c, true)
+  const { clauses, binds } = await jobFilters(c, true)
   const sql = `SELECT ${JOB_COLUMNS}, s.tier, s.label as source_label
     FROM jobs j JOIN sources s ON s.id = j.source_id
     WHERE ${clauses}
@@ -381,7 +408,7 @@ app.get("/api/jobs", async (c) => {
 // The company picker ignores its own selection, otherwise unpicking a company
 // would be impossible once it dropped out of the list.
 app.get("/api/jobs/companies", async (c) => {
-  const { clauses, binds } = jobFilters(c, false)
+  const { clauses, binds } = await jobFilters(c, false)
   const sql = `SELECT j.company_key, MIN(j.company) AS company, COUNT(*) AS jobs
     FROM jobs j JOIN sources s ON s.id = j.source_id
     WHERE ${clauses}
@@ -468,16 +495,22 @@ app.post("/api/jobs/:id/score", async (c) => {
 
 app.get("/api/profile", async (c) => {
   const row = await c.env.DB.prepare(`SELECT content FROM profile WHERE id = 1`).first<{ content: string }>()
-  return c.json({ content: row?.content ?? "", prefilter: await resolvePrefilter(c.env) })
+  const [prefilter, blacklist, companies] = await Promise.all([
+    resolvePrefilter(c.env),
+    resolveCompanyBlacklist(c.env),
+    listOpenCompanies(c.env),
+  ])
+  return c.json({ content: row?.content ?? "", prefilter, blacklist, companies })
 })
 
 app.put("/api/profile", async (c) => {
   const body = await c.req.json<{
     content?: string
     prefilter?: { keep?: unknown; drop?: unknown }
+    blacklist?: unknown
   }>()
-  if (typeof body.content !== "string" && !body.prefilter) {
-    return c.json({ error: "content or prefilter required" }, 400)
+  if (typeof body.content !== "string" && !body.prefilter && !Array.isArray(body.blacklist)) {
+    return c.json({ error: "content, prefilter or blacklist required" }, 400)
   }
 
   if (typeof body.content === "string") {
@@ -498,7 +531,11 @@ app.put("/api/profile", async (c) => {
     applied = await reapplyPrefilter(c.env)
   }
 
-  return c.json({ ok: true, prefilter, applied })
+  const blacklist = Array.isArray(body.blacklist)
+    ? await writeCompanyBlacklist(c.env, body.blacklist)
+    : await resolveCompanyBlacklist(c.env)
+
+  return c.json({ ok: true, prefilter, applied, blacklist })
 })
 
 app.post("/api/profile/rescore", async (c) => {

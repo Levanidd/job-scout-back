@@ -4,7 +4,7 @@ import { detectUrl } from "./detect"
 import { renderDigest, sendTelegram } from "./notify"
 import { clipDescription, passesPrefilter } from "./prefilter"
 import { scoreInBatches, scoreJobs, type ScoreInput } from "./scoring"
-import { resolvePrefilter, resolveScoringConfig } from "./settings"
+import { resolveCompanyBlacklist, resolvePrefilter, resolveScoringConfig, sqlExcludeCompanyKeys } from "./settings"
 import type { Bindings, RawJob, SourceRow } from "./types"
 
 type RunResult = {
@@ -110,11 +110,13 @@ async function upsertJobs(
   jobs: RawJob[],
   watched: Set<string>,
 ): Promise<number> {
+  const blocked = new Set((await resolveCompanyBlacklist(env)).map((item) => item.company_key))
   let jobsNew = 0
   for (const job of jobs) {
     const id = await jobHash(source.provider, source.token, job.externalId)
     const company = job.company ?? source.label
     const key = companyKey(company)
+    if (key && blocked.has(key)) continue
     const opening = dedupKey(company, job.title) || null
     const existing = await env.DB.prepare(`SELECT id FROM jobs WHERE id = ?`).bind(id).first<{ id: string }>()
 
@@ -377,6 +379,7 @@ export async function prefilterAndScore(
   const profileRow = await env.DB.prepare(`SELECT content FROM profile WHERE id = 1`).first<{ content: string }>()
   const profile = profileRow?.content ?? ""
   const rules = await resolvePrefilter(env)
+  const blocked = new Set((await resolveCompanyBlacklist(env)).map((item) => item.company_key))
 
   // A role we already judged on one board is the same role on the next one, so
   // its verdict carries over instead of being bought again.
@@ -403,6 +406,7 @@ export async function prefilterAndScore(
 
   for (const job of open.results) {
     if (job.status === "ignored" || job.status === "rejected" || job.status === "off_profile") continue
+    if (job.company_key && blocked.has(job.company_key)) continue
     if (!passesPrefilter(job.title, rules)) {
       // Kept out of the scoring queue but not out of sight: the title says the
       // role is not ours, and the description is dropped because nothing reads it.
@@ -637,12 +641,17 @@ export async function notifyNew(env: Bindings): Promise<number> {
   // One line per opening, not per board that carries it. Grouping on the
   // dedup key keeps the copy from the employer's own board, whose link goes
   // straight to the posting rather than through an aggregator.
+  const blocked = sqlExcludeCompanyKeys(
+    "j.company_key",
+    (await resolveCompanyBlacklist(env)).map((item) => item.company_key),
+  )
   const rows = await env.DB.prepare(
     `SELECT j.company, j.title, j.url, MAX(j.score) AS score, j.score_reason as reason, j.flags, j.id,
             s.tier, j.dedup_key, MAX(j.salary_min) AS salary_min, MAX(j.salary_max) AS salary_max,
             MIN(j.salary_currency) AS salary_currency
      FROM jobs j JOIN sources s ON s.id = j.source_id
      WHERE j.notified_at IS NULL AND j.closed_at IS NULL AND j.status = 'new' AND j.score IS NOT NULL
+       AND ${blocked.sql}
        AND (
          (s.tier = 'watchlist' AND j.score >= 55) OR
          (s.tier = 'discovery' AND j.score >= 70)
@@ -650,19 +659,21 @@ export async function notifyNew(env: Bindings): Promise<number> {
      GROUP BY COALESCE(j.dedup_key, j.id)
      ORDER BY score DESC
      LIMIT 25`,
-  ).all<{
-    company: string
-    title: string
-    url: string
-    score: number
-    reason: string | null
-    flags: string | null
-    id: string
-    dedup_key: string | null
-    salary_min: number | null
-    salary_max: number | null
-    salary_currency: string | null
-  }>()
+  )
+    .bind(...blocked.binds)
+    .all<{
+      company: string
+      title: string
+      url: string
+      score: number
+      reason: string | null
+      flags: string | null
+      id: string
+      dedup_key: string | null
+      salary_min: number | null
+      salary_max: number | null
+      salary_currency: string | null
+    }>()
 
   const discovered = await env.DB.prepare(
     `SELECT COUNT(*) as n FROM discovered_companies WHERE state = 'new' AND first_seen_at >= datetime('now', '-1 day')`,

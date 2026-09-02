@@ -121,6 +121,11 @@ export type PrefilterRules = {
   drop: string[]
 }
 
+export type BlacklistedCompany = {
+  company_key: string
+  company: string
+}
+
 export type RunResult = {
   source_id: number
   ok: boolean

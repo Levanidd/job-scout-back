@@ -4,7 +4,7 @@ import { api } from "../api"
 import { useAction, useApp } from "../app-context"
 import { TagEditor } from "../components/TagEditor"
 import { Skeletons } from "../components/common"
-import type { PrefilterRules } from "../types"
+import type { BlacklistedCompany, PrefilterRules } from "../types"
 import { ModelPicker } from "./ModelPicker"
 
 function sameTags(left: PrefilterRules, right: PrefilterRules): boolean {
@@ -18,6 +18,9 @@ export function Profile() {
   const [saved, setSaved] = useState("")
   const [prefilter, setPrefilter] = useState<PrefilterRules>({ keep: [], drop: [] })
   const [savedPrefilter, setSavedPrefilter] = useState<PrefilterRules>({ keep: [], drop: [] })
+  const [blacklist, setBlacklist] = useState<BlacklistedCompany[]>([])
+  const [companies, setCompanies] = useState<BlacklistedCompany[]>([])
+  const [pick, setPick] = useState("")
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
@@ -28,6 +31,8 @@ export function Profile() {
     const tags = result.prefilter ?? { keep: [], drop: [] }
     setPrefilter(tags)
     setSavedPrefilter(tags)
+    setBlacklist(result.blacklist ?? [])
+    setCompanies(result.companies ?? [])
   }, [run])
 
   useEffect(() => {
@@ -61,6 +66,29 @@ export function Profile() {
       `Теги сохранены. Отсеяно ${dropped}, возвращено в очередь ${restored}`,
       "ok",
     )
+  }
+
+  async function persistBlacklist(next: BlacklistedCompany[]) {
+    setBusy(true)
+    const result = await run(() => api.saveBlacklist(next))
+    setBusy(false)
+    if (!result) return
+    setBlacklist(result.blacklist ?? next)
+    setPick("")
+  }
+
+  function addBlocked() {
+    const company = companies.find((item) => item.company_key === pick)
+    if (!company) return
+    if (blacklist.some((item) => item.company_key === company.company_key)) {
+      setPick("")
+      return
+    }
+    void persistBlacklist([...blacklist, company])
+  }
+
+  function removeBlocked(key: string) {
+    void persistBlacklist(blacklist.filter((item) => item.company_key !== key))
   }
 
   async function rescore() {
@@ -121,6 +149,64 @@ export function Profile() {
               >
                 Сохранить теги
               </button>
+            </div>
+          </section>
+
+          <section className="card">
+            <h3 className="card-title">Чёрный список компаний</h3>
+            <p className="card-sub">
+              Вакансии этих компаний не записываются при прогоне и не показываются в списках. Уже лежащие в базе
+              строки остаются, просто скрыты — если убрать компанию из списка, они снова появятся.
+            </p>
+
+            <div className="tag-editor">
+            {blacklist.length > 0 ? (
+              <div className="tag-list">
+                {blacklist.map((item) => (
+                  <span key={item.company_key} className="tag tag-drop">
+                    {item.company}
+                    <button
+                      type="button"
+                      className="tag-remove"
+                      disabled={busy}
+                      aria-label={`Убрать ${item.company}`}
+                      onClick={() => removeBlocked(item.company_key)}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="muted">Пока пусто</p>
+            )}
+
+            <form
+              className="tag-add"
+              onSubmit={(event) => {
+                event.preventDefault()
+                addBlocked()
+              }}
+            >
+              <select
+                className="select"
+                value={pick}
+                disabled={busy}
+                onChange={(event) => setPick(event.target.value)}
+              >
+                <option value="">Выберите компанию</option>
+                {companies
+                  .filter((item) => !blacklist.some((blocked) => blocked.company_key === item.company_key))
+                  .map((item) => (
+                    <option key={item.company_key} value={item.company_key}>
+                      {item.company}
+                    </option>
+                  ))}
+              </select>
+              <button className="btn btn-sm" type="submit" disabled={busy || !pick}>
+                Добавить
+              </button>
+            </form>
             </div>
           </section>
 

@@ -1,5 +1,6 @@
 import {
   DEFAULT_PREFILTER,
+  collapseSpaces,
   sanitizeTags,
   type PrefilterRules,
 } from "./prefilter"
@@ -16,6 +17,9 @@ export const SETTING_MODEL = "gemini_model"
 export const SETTING_THINKING = "gemini_thinking_level"
 export const SETTING_PREFILTER_KEEP = "prefilter_keep"
 export const SETTING_PREFILTER_DROP = "prefilter_drop"
+export const SETTING_COMPANY_BLACKLIST = "company_blacklist"
+
+export type BlacklistedCompany = { company_key: string; company: string }
 
 async function read(env: Bindings, key: string): Promise<string | null> {
   const row = await env.DB.prepare(`SELECT value FROM settings WHERE key = ?`).bind(key).first<{ value: string }>()
@@ -61,6 +65,65 @@ export async function writePrefilter(env: Bindings, rules: PrefilterRules): Prom
     writeSetting(env, SETTING_PREFILTER_DROP, JSON.stringify(drop)),
   ])
   return { keep, drop }
+}
+
+export function sanitizeCompanyBlacklist(input: unknown): BlacklistedCompany[] {
+  if (!Array.isArray(input)) return []
+  const seen = new Set<string>()
+  const out: BlacklistedCompany[] = []
+  for (const item of input) {
+    if (!item || typeof item !== "object") continue
+    const company_key = collapseSpaces(String((item as { company_key?: unknown }).company_key ?? "")).toLowerCase()
+    const company = collapseSpaces(String((item as { company?: unknown }).company ?? ""))
+    if (!company_key || !company) continue
+    if (seen.has(company_key)) continue
+    seen.add(company_key)
+    out.push({ company_key, company })
+    if (out.length >= 80) break
+  }
+  return out
+}
+
+export async function resolveCompanyBlacklist(env: Bindings): Promise<BlacklistedCompany[]> {
+  const raw = await read(env, SETTING_COMPANY_BLACKLIST)
+  if (!raw) return []
+  try {
+    return sanitizeCompanyBlacklist(JSON.parse(raw) as unknown)
+  } catch {
+    return []
+  }
+}
+
+export async function writeCompanyBlacklist(env: Bindings, items: unknown): Promise<BlacklistedCompany[]> {
+  const list = sanitizeCompanyBlacklist(items)
+  await writeSetting(env, SETTING_COMPANY_BLACKLIST, JSON.stringify(list))
+  return list
+}
+
+export function blacklistKeys(list: BlacklistedCompany[]): Set<string> {
+  return new Set(list.map((item) => item.company_key))
+}
+
+export function sqlExcludeCompanyKeys(
+  column: string,
+  keys: string[],
+): { sql: string; binds: string[] } {
+  if (keys.length === 0) return { sql: "1=1", binds: [] }
+  return {
+    sql: `LOWER(${column}) NOT IN (${keys.map(() => "?").join(", ")})`,
+    binds: keys,
+  }
+}
+
+export async function listOpenCompanies(env: Bindings): Promise<BlacklistedCompany[]> {
+  const rows = await env.DB.prepare(
+    `SELECT company_key, MIN(company) AS company
+     FROM jobs
+     WHERE closed_at IS NULL AND company_key IS NOT NULL AND company_key != ''
+     GROUP BY company_key
+     ORDER BY company COLLATE NOCASE`,
+  ).all<BlacklistedCompany>()
+  return rows.results
 }
 
 /** DB wins over the GEMINI_MODEL secret so the model stays changeable from the admin. */

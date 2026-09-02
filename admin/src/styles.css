@@ -1024,7 +1024,8 @@ a.mono:hover {
   align-items: center;
 }
 
-.tag-add .input {
+.tag-add .input,
+.tag-add .select {
   flex: 1;
   min-width: 0;
   height: 44px;
