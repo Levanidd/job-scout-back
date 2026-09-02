@@ -295,13 +295,13 @@ export function enqueueTick(env: Bindings, ctx: { waitUntil(promise: Promise<unk
 
 /**
  * Cloudflare kills waitUntil. Cron picks the cycle back up if nothing has
- * moved in 90 seconds, so closing the tab does not freeze a run.
+ * moved in 45 seconds, so closing the tab does not freeze a run.
  */
 export async function resumeStuckCycle(env: Bindings): Promise<void> {
   const claimed = await env.DB.prepare(
     `UPDATE cycles SET updated_at = datetime('now')
      WHERE id = 1 AND status = 'running'
-       AND updated_at < datetime('now', '-90 seconds')`,
+       AND updated_at < datetime('now', '-45 seconds')`,
   ).run()
   if (!Number(claimed.meta.changes)) return
   await walkCycle(env)
