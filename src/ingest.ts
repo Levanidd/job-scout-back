@@ -41,13 +41,33 @@ export function isSuspicious(lastCount: number | null, found: number): boolean {
   return lastCount != null && lastCount > 0 && found < lastCount * 0.5
 }
 
+function timed<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(label)), ms)
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
+}
+
 export async function runSource(env: Bindings, source: SourceRow): Promise<RunResult> {
   const started = Date.now()
   const nowRow = await env.DB.prepare(`SELECT datetime('now') AS now`).first<{ now: string }>()
   const runStart = nowRow?.now ?? new Date().toISOString().replace("T", " ").slice(0, 19)
   try {
     const adapter = getAdapter(source.provider)
-    const raw = await adapter.fetchJobs(source.token, env)
+    const raw = await timed(
+      adapter.fetchJobs(source.token, env),
+      20_000,
+      `${source.label}: fetch timed out`,
+    )
     const suspicious = isSuspicious(source.last_count, raw.length)
 
     let jobsNew = 0
