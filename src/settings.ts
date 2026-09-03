@@ -104,15 +104,33 @@ export function blacklistKeys(list: BlacklistedCompany[]): Set<string> {
   return new Set(list.map((item) => item.company_key))
 }
 
-export function sqlExcludeCompanyKeys(
-  column: string,
-  keys: string[],
-): { sql: string; binds: string[] } {
+/** The blocked companies as a lookup, for filtering rows already in memory. */
+export async function blockedCompanyKeys(env: Bindings): Promise<Set<string>> {
+  return blacklistKeys(await resolveCompanyBlacklist(env))
+}
+
+/**
+ * A WHERE fragment that hides blocked companies. Keys are stored folded by
+ * `companyKey`, so the column is compared as-is and the index stays usable.
+ */
+export function sqlExcludeCompanyKeys(column: string, keys: string[]): { sql: string; binds: string[] } {
   if (keys.length === 0) return { sql: "1=1", binds: [] }
   return {
-    sql: `LOWER(${column}) NOT IN (${keys.map(() => "?").join(", ")})`,
+    sql: `${column} NOT IN (${keys.map(() => "?").join(", ")})`,
     binds: keys,
   }
+}
+
+/** The same exclusion, resolved against the stored blacklist in one step. */
+export async function excludeBlockedCompanies(
+  env: Bindings,
+  column: string,
+): Promise<{ sql: string; binds: string[] }> {
+  const list = await resolveCompanyBlacklist(env)
+  return sqlExcludeCompanyKeys(
+    column,
+    list.map((item) => item.company_key),
+  )
 }
 
 export async function listOpenCompanies(env: Bindings): Promise<BlacklistedCompany[]> {

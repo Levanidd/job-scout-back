@@ -1,0 +1,279 @@
+import { beforeEach, describe, expect, it } from "vitest"
+
+import { prefilterAndScore, upsertJobs } from "../src/ingest"
+import { SETTING_COMPANY_BLACKLIST, writeSetting } from "../src/settings"
+import type { RawJob, SourceRow } from "../src/types"
+import { one, rows, testEnv, type TestEnv } from "./helpers/d1"
+
+let env: TestEnv
+
+beforeEach(() => {
+  env = testEnv()
+})
+
+async function addSource(over: Partial<SourceRow> = {}): Promise<SourceRow> {
+  const source = {
+    kind: "company" as const,
+    tier: "watchlist" as const,
+    label: "Acme",
+    provider: "greenhouse",
+    token: "acme",
+    ...over,
+  }
+  await env.DB.prepare(
+    `INSERT INTO sources (kind, tier, label, provider, token) VALUES (?, ?, ?, ?, ?)`,
+  )
+    .bind(source.kind, source.tier, source.label, source.provider, source.token)
+    .run()
+  const row = await one<SourceRow>(
+    env,
+    `SELECT * FROM sources WHERE provider = ? AND token = ?`,
+    source.provider,
+    source.token,
+  )
+  if (!row) throw new Error("source not created")
+  return row
+}
+
+function job(over: Partial<RawJob> = {}): RawJob {
+  return {
+    externalId: "1",
+    title: "Senior Product Manager",
+    company: "Acme GmbH",
+    url: "https://acme.example/jobs/1",
+    location: "Berlin",
+    description: "Build payments products.",
+    ...over,
+  }
+}
+
+describe("upsertJobs", () => {
+  it("inserts a job and counts it as new only once", async () => {
+    const source = await addSource()
+    expect(await upsertJobs(env, source, [job()], new Set())).toBe(1)
+    expect(await upsertJobs(env, source, [job()], new Set())).toBe(0)
+
+    const stored = await rows(env, `SELECT company, company_key, title, dedup_key, status FROM jobs`)
+    expect(stored).toHaveLength(1)
+    expect(stored[0]).toMatchObject({
+      company: "Acme GmbH",
+      company_key: "acme",
+      status: "new",
+      dedup_key: "acme|senior product manager",
+    })
+  })
+
+  it("falls back to the source label when the board omits the company", async () => {
+    const source = await addSource({ label: "Acme GmbH" })
+    await upsertJobs(env, source, [job({ company: undefined })], new Set())
+    expect(await one(env, `SELECT company_key FROM jobs`)).toMatchObject({ company_key: "acme" })
+  })
+
+  it("skips blacklisted companies", async () => {
+    const source = await addSource()
+    await writeSetting(
+      env,
+      SETTING_COMPANY_BLACKLIST,
+      JSON.stringify([{ company_key: "acme", company: "Acme" }]),
+    )
+    expect(await upsertJobs(env, source, [job()], new Set())).toBe(0)
+    expect(await rows(env, `SELECT id FROM jobs`)).toHaveLength(0)
+  })
+
+  it("touches changed_at only when a visible field moves", async () => {
+    const source = await addSource()
+    await upsertJobs(env, source, [job()], new Set())
+    const first = await one<{ changed_at: string }>(env, `SELECT changed_at FROM jobs`)
+
+    await upsertJobs(env, source, [job()], new Set())
+    expect(await one(env, `SELECT changed_at FROM jobs`)).toMatchObject({ changed_at: first?.changed_at })
+
+    await env.DB.prepare(`UPDATE jobs SET changed_at = '2000-01-01 00:00:00'`).run()
+    await upsertJobs(env, source, [job({ title: "Principal Product Manager" })], new Set())
+    const moved = await one<{ changed_at: string }>(env, `SELECT changed_at FROM jobs`)
+    expect(moved?.changed_at).not.toBe("2000-01-01 00:00:00")
+  })
+
+  it("keeps a description already stored when the board stops sending one", async () => {
+    const source = await addSource()
+    await upsertJobs(env, source, [job()], new Set())
+    await upsertJobs(env, source, [job({ description: undefined })], new Set())
+    expect(await one(env, `SELECT description FROM jobs`)).toMatchObject({
+      description: "Build payments products.",
+    })
+  })
+
+  it("records unwatched employers seen on a query board", async () => {
+    const source = await addSource({ kind: "query", provider: "arbeitnow", token: "product" })
+    await upsertJobs(env, source, [job()], new Set())
+    expect(await rows(env, `SELECT company_key, hits, state FROM discovered_companies`)).toEqual([
+      { company_key: "acme", hits: 1, state: "new" },
+    ])
+
+    await upsertJobs(env, source, [job()], new Set(["acme"]))
+    expect(await one(env, `SELECT hits FROM discovered_companies`)).toMatchObject({ hits: 1 })
+  })
+
+  it("writes one row when the same opening appears twice in one slice", async () => {
+    const source = await addSource()
+    const written = await upsertJobs(
+      env,
+      source,
+      [
+        job({ externalId: "1", url: "https://acme.example/jobs/1" }),
+        job({ externalId: "2", url: "https://acme.example/jobs/2" }),
+      ],
+      new Set(),
+    )
+    expect(written).toBe(1)
+    expect(await rows(env, `SELECT url FROM jobs`)).toEqual([{ url: "https://acme.example/jobs/1" }])
+  })
+
+  it("writes the rest of the slice around a blacklisted company", async () => {
+    const source = await addSource({ kind: "query", provider: "arbeitnow", token: "product" })
+    await writeSetting(
+      env,
+      SETTING_COMPANY_BLACKLIST,
+      JSON.stringify([{ company_key: "acme", company: "Acme" }]),
+    )
+    const written = await upsertJobs(
+      env,
+      source,
+      [
+        job({ externalId: "1" }),
+        job({ externalId: "2", company: "Beispiel Bank AG", url: "https://bank.example/2" }),
+      ],
+      new Set(),
+    )
+    expect(written).toBe(1)
+    expect(await rows(env, `SELECT company_key FROM jobs`)).toEqual([{ company_key: "beispiel bank" }])
+    expect(await rows(env, `SELECT company_key FROM discovered_companies`)).toEqual([
+      { company_key: "beispiel bank" },
+    ])
+  })
+
+  it("leaves the employer's own copy alone when a query board finds the twin", async () => {
+    const company = await addSource()
+    await upsertJobs(env, company, [job()], new Set())
+
+    const query = await addSource({ kind: "query", provider: "arbeitnow", token: "product" })
+    expect(
+      await upsertJobs(env, query, [job({ externalId: "9", url: "https://aggregator.example/9" })], new Set()),
+    ).toBe(0)
+
+    const stored = await rows<{ url: string }>(env, `SELECT url FROM jobs`)
+    expect(stored).toEqual([{ url: "https://acme.example/jobs/1" }])
+  })
+
+  it("replaces an aggregator twin and inherits what the user did to it", async () => {
+    const query = await addSource({ kind: "query", provider: "arbeitnow", token: "product" })
+    await upsertJobs(env, query, [job({ externalId: "9", url: "https://aggregator.example/9" })], new Set())
+    await env.DB.prepare(
+      `UPDATE jobs SET status = 'applied', applied_at = '2026-01-02 10:00:00',
+         viewed_at = '2026-01-01 10:00:00', notes = 'sent CV', score = 88,
+         first_seen_at = '2025-12-01 00:00:00'`,
+    ).run()
+
+    const company = await addSource()
+    await upsertJobs(env, company, [job()], new Set())
+
+    const stored = await rows<Record<string, unknown>>(
+      env,
+      `SELECT url, status, applied_at, viewed_at, notes, score, first_seen_at FROM jobs`,
+    )
+    expect(stored).toHaveLength(1)
+    expect(stored[0]).toMatchObject({
+      url: "https://acme.example/jobs/1",
+      status: "applied",
+      applied_at: "2026-01-02 10:00:00",
+      viewed_at: "2026-01-01 10:00:00",
+      notes: "sent CV",
+      score: 88,
+      first_seen_at: "2025-12-01 00:00:00",
+    })
+  })
+})
+
+describe("prefilterAndScore", () => {
+  it("parks titles the prefilter rejects and drops their descriptions", async () => {
+    const source = await addSource()
+    await upsertJobs(env, source, [job({ title: "Backend Engineer" })], new Set())
+
+    const step = await prefilterAndScore(env)
+    expect(step.scored).toBe(0)
+    expect(await one(env, `SELECT status, score, score_reason, description FROM jobs`)).toMatchObject({
+      status: "off_profile",
+      score: 0,
+      score_reason: "prefilter",
+      description: null,
+    })
+  })
+
+  it("scores what passes and lifts the company's best score", async () => {
+    const source = await addSource()
+    await upsertJobs(env, source, [job()], new Set())
+
+    const step = await prefilterAndScore(env)
+    expect(step.scored).toBe(1)
+    expect(step.remaining).toBe(0)
+    const stored = await one<{ score: number }>(env, `SELECT score FROM jobs`)
+    expect(stored?.score).toBeGreaterThan(0)
+  })
+
+  it("reuses a verdict across boards that carry the same opening", async () => {
+    const company = await addSource()
+    await upsertJobs(env, company, [job()], new Set())
+    await prefilterAndScore(env)
+    const judged = await one<{ score: number }>(env, `SELECT score FROM jobs`)
+
+    const other = await addSource({ label: "Acme mirror", provider: "lever", token: "acme" })
+    await upsertJobs(env, other, [job({ externalId: "77", url: "https://jobs.lever.co/acme/77" })], new Set())
+    const step = await prefilterAndScore(env)
+
+    expect(step.scored).toBe(0)
+    const scores = await rows<{ score: number }>(env, `SELECT score FROM jobs ORDER BY id`)
+    expect(scores.every((row) => row.score === judged?.score)).toBe(true)
+  })
+
+  it("honours the batch limit and reports what is left", async () => {
+    const source = await addSource()
+    await upsertJobs(
+      env,
+      source,
+      [
+        job({ externalId: "1", title: "Senior Product Manager", url: "https://acme.example/1" }),
+        job({ externalId: "2", title: "Group Product Manager", url: "https://acme.example/2" }),
+        job({ externalId: "3", title: "Head of Product", url: "https://acme.example/3" }),
+      ],
+      new Set(),
+    )
+
+    const first = await prefilterAndScore(env, 2)
+    expect(first).toEqual({ scored: 2, remaining: 1, more: true })
+    const second = await prefilterAndScore(env, 2)
+    expect(second).toEqual({ scored: 1, remaining: 0, more: false })
+  })
+
+  it("marks a cold source as already delivered instead of notifying its backlog", async () => {
+    const source = await addSource()
+    await upsertJobs(env, source, [job()], new Set())
+    await prefilterAndScore(env)
+
+    expect(await one(env, `SELECT bootstrapped FROM sources`)).toMatchObject({ bootstrapped: 1 })
+    const stored = await one<{ notified_at: string | null }>(env, `SELECT notified_at FROM jobs`)
+    expect(stored?.notified_at).not.toBeNull()
+  })
+
+  it("ignores blacklisted companies already sitting in the queue", async () => {
+    const source = await addSource()
+    await upsertJobs(env, source, [job()], new Set())
+    await writeSetting(
+      env,
+      SETTING_COMPANY_BLACKLIST,
+      JSON.stringify([{ company_key: "acme", company: "Acme" }]),
+    )
+
+    expect(await prefilterAndScore(env)).toEqual({ scored: 0, remaining: 0, more: false })
+    expect(await one(env, `SELECT score FROM jobs`)).toMatchObject({ score: null })
+  })
+})

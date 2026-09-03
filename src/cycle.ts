@@ -1,3 +1,4 @@
+import { message } from "./errors"
 import { notifyNew, pickSources, prefilterAndScore, runSourceStep } from "./ingest"
 import type { Bindings, SourceRow } from "./types"
 
@@ -111,13 +112,12 @@ export async function loadCycleView(env: Bindings): Promise<CycleView> {
 }
 
 export async function failCycle(env: Bindings, error: unknown): Promise<void> {
-  const message = error instanceof Error ? error.message : String(error)
   await env.DB.prepare(
     `UPDATE cycles SET status = 'error', error = ?, current_label = NULL, current_id = NULL,
        updated_at = datetime('now'), finished_at = datetime('now')
      WHERE id = 1 AND status = 'running'`,
   )
-    .bind(message)
+    .bind(message(error))
     .run()
 }
 
@@ -168,18 +168,7 @@ async function finish(env: Bindings, notified: number): Promise<void> {
 
 async function advance(env: Bindings, row: CycleRow): Promise<boolean> {
   if (row.phase === "sources") {
-    const sources = planned(row.source_ids)
-    if (row.cursor >= sources.length) {
-      await env.DB.prepare(
-        `UPDATE cycles SET phase = 'scoring', done = 0, total = 0,
-           current_label = NULL, current_id = NULL,
-           chunk_offset = 0, chunk_started_at = NULL, updated_at = datetime('now')
-         WHERE id = 1`,
-      ).run()
-      return true
-    }
-
-    const item = sources[row.cursor]
+    const item = planned(row.source_ids)[row.cursor]
     if (!item) {
       await env.DB.prepare(
         `UPDATE cycles SET phase = 'scoring', done = 0, total = 0,
@@ -229,18 +218,12 @@ async function advance(env: Bindings, row: CycleRow): Promise<boolean> {
   if (row.phase === "scoring") {
     const step = await prefilterAndScore(env, SCORE_CHUNK)
     const scored = row.scored + step.scored
-    const remaining = step.remaining
-    const doneScoring = remaining === 0 || step.scored === 0
     await env.DB.prepare(
-      doneScoring
-        ? `UPDATE cycles SET scored = ?, done = ?, total = ?, phase = 'digest',
-             current_label = NULL, current_id = NULL, updated_at = datetime('now')
-           WHERE id = 1`
-        : `UPDATE cycles SET scored = ?, done = ?, total = ?,
-             current_label = NULL, current_id = NULL, updated_at = datetime('now')
-           WHERE id = 1`,
+      `UPDATE cycles SET scored = ?, done = ?, total = ?, phase = ?,
+         current_label = NULL, current_id = NULL, updated_at = datetime('now')
+       WHERE id = 1`,
     )
-      .bind(scored, scored, scored + remaining)
+      .bind(scored, scored, scored + step.remaining, step.more ? "scoring" : "digest")
       .run()
     return true
   }
