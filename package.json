@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler d1 migrations apply job-scout --local && wrangler dev --port 43142 --ip 0.0.0.0",
-    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "typecheck:admin": "npm --prefix admin run typecheck",
+    "test": "npm run typecheck && vitest run",
     "eval": "tsx scripts/eval.ts",
     "build": "npm --prefix admin ci && npm --prefix admin run build",
     "admin:dev": "npm --prefix admin run dev",
@@ -20,7 +22,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "latest",
-    "@types/node": "^20.19.11",
+    "@types/node": "^24.13.3",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4",

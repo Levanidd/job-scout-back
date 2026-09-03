@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
 import { parseArbeitsagentur } from "../../src/adapters/arbeitsagentur"
@@ -22,7 +23,7 @@ import { dedupKey } from "../../src/company-key"
 import { toIso } from "../../src/http"
 
 function load(name: string) {
-  return readFileSync(new URL(`../fixtures/${name}`, import.meta.url), "utf8")
+  return readFileSync(join(import.meta.dirname, "..", "fixtures", name), "utf8")
 }
 
 describe("adapter parsers", () => {
