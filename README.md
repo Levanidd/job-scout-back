@@ -38,8 +38,10 @@ npm run deploy
 
 Локально: `npm run dev` → `GET http://127.0.0.1:43142/api/health`.
 
-Автозапуска нет: крон отключён (`crons = []`), прогон стартует только кнопкой «Прогнать» в админке,
-то есть `POST /api/run`. Один прогон берёт watchlist (если его меньше 20) плюс 6 discovery-источников.
+Автозапуска нет: прогон стартует только кнопкой «Прогнать» в админке, то есть `POST /api/run`.
+Крон (`crons = ["* * * * *"]`) сам цикл никогда не начинает — он лишь подхватывает тот, который
+Cloudflare оборвал вместе с `waitUntil`, если ничего не двигалось 45 секунд. Поэтому вкладку можно
+закрыть. Большая доска пишется слайсами по 200 вакансий, чтобы один хоп укладывался в бюджет воркера.
 
 ## Админка
 
@@ -73,12 +75,17 @@ npm run admin:dev   # Vite на 5173 с проксированием /api на 4
 | GET | `/api/discovered?state=new` | новые компании |
 | POST | `/api/discovered/:key/add` | в watchlist |
 | POST | `/api/discovered/:key/dismiss` | скрыть |
-| GET | `/api/jobs` | `?status=&min_score=&tier=&companies=&added_days=&added_from=&sort=&dir=`; `status=any` — включая отсеянные |
+| GET | `/api/jobs` | `?status=&min_score=&tier=&companies=&added_days=&added_from=&viewed=&sort=&dir=`; `status=any` — включая отсеянные |
 | GET | `/api/jobs/companies` | компании с их числом вакансий под те же фильтры |
-| PATCH | `/api/jobs/:id` | `{status}` |
-| GET/PUT | `/api/profile` | текст для скоринга |
+| PATCH | `/api/jobs/:id` | `{status}`, `{notes}` или `{viewed}` |
+| GET | `/api/applied` | отклики; `?status=applied\|interview\|rejected` |
+| POST | `/api/applied` | вакансия, добавленная руками, без ATS |
+| GET/PUT | `/api/profile` | текст для скоринга, keep/drop-теги и чёрный список компаний |
 | POST | `/api/profile/rescore` | обнулить score и пересчитать |
 | GET | `/api/runs` | последние 50 прогонов |
+
+Роуты разложены по доменам в `src/routes/`; `src/index.ts` только собирает приложение,
+проверяет токен и ловит ошибки.
 
 Первый прогон источника с `bootstrapped=0` не шлёт уведомления (холодный старт).
 
@@ -97,6 +104,11 @@ npm run admin:dev   # Vite на 5173 с проксированием /api на 4
 ## Тесты
 
 ```bash
-npm test          # парсеры + guard
-npm run eval      # 20 вакансий, цель ≤3 расхождений
+npm test              # tsc --noEmit + vitest
+npm run typecheck     # только типы воркера
+npm run typecheck:admin
+npm run eval          # 20 вакансий, цель ≤3 расхождений
 ```
+
+Тесты ingest и API поднимают SQLite в памяти, прогоняют по нему настоящие миграции и дергают
+воркер через `app.fetch`, так что запросы проверяются против того же SQL, что уходит в D1.
