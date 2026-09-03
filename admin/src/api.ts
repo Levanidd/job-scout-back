@@ -1,5 +1,4 @@
 import type {
-  BulkDetectResult,
   Cycle,
   CompanyFacet,
   DetectResult,
@@ -97,6 +96,19 @@ function jobQuery(filters: JobFilters): string {
   return query ? `?${query}` : ""
 }
 
+/** Every job PATCH answers with the fields the list and the detail card show. */
+export type JobPatch = {
+  ok: true
+  status: JobStatus
+  notes: string | null
+  applied_at: string | null
+  viewed_at: string | null
+}
+
+function patchJob(id: string, body: { status?: JobStatus; notes?: string; viewed?: boolean }): Promise<JobPatch> {
+  return request(`/jobs/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) })
+}
+
 export const api = {
   async verify(): Promise<void> {
     await request("/profile")
@@ -110,43 +122,16 @@ export const api = {
     return request(`/jobs/companies${jobQuery({ ...filters, companies: undefined, source_label: undefined, sort: undefined, dir: undefined })}`)
   },
 
-  setJobStatus(id: string, status: JobStatus): Promise<{
-    ok: true
-    status: JobStatus
-    notes: string | null
-    applied_at: string | null
-    viewed_at: string | null
-  }> {
-    return request(`/jobs/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      body: JSON.stringify({ status }),
-    })
+  setJobStatus(id: string, status: JobStatus): Promise<JobPatch> {
+    return patchJob(id, { status })
   },
 
-  setJobViewed(id: string, viewed: boolean): Promise<{
-    ok: true
-    status: JobStatus
-    notes: string | null
-    applied_at: string | null
-    viewed_at: string | null
-  }> {
-    return request(`/jobs/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      body: JSON.stringify({ viewed }),
-    })
+  setJobViewed(id: string, viewed: boolean): Promise<JobPatch> {
+    return patchJob(id, { viewed })
   },
 
-  saveJobNotes(id: string, notes: string): Promise<{
-    ok: true
-    status: JobStatus
-    notes: string | null
-    applied_at: string | null
-    viewed_at: string | null
-  }> {
-    return request(`/jobs/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      body: JSON.stringify({ notes }),
-    })
+  saveJobNotes(id: string, notes: string): Promise<JobPatch> {
+    return patchJob(id, { notes })
   },
 
   job(id: string): Promise<{ job: Job }> {
@@ -265,10 +250,6 @@ export const api = {
 
   detect(url: string): Promise<DetectResult> {
     return post("/detect", { url })
-  },
-
-  bulkDetect(urls: string[]): Promise<{ results: BulkDetectResult[] }> {
-    return post("/sources/bulk-detect", { urls })
   },
 
   profile(): Promise<{

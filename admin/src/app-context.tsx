@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext } from "react"
+import { createContext, useCallback, useContext, useEffect } from "react"
 
 import { UnauthorizedError } from "./api"
 
@@ -50,4 +50,23 @@ export function useAction() {
     },
     [notify, logout],
   )
+}
+
+/**
+ * Loads once when the screen opens or its filters change, and again — without
+ * blanking the table — on every refresh tick. Pass `extraTick` for a screen that
+ * also follows a second signal, such as Sources following a running cycle.
+ */
+export function useLoader(load: (silent?: boolean) => void | Promise<void>, extraTick = 0): void {
+  const { refreshTick } = useApp()
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  useEffect(() => {
+    // Both ticks start at zero, and the mount effect above already did that load.
+    if (refreshTick === 0 && extraTick === 0) return
+    void load(true)
+  }, [refreshTick, extraTick, load])
 }

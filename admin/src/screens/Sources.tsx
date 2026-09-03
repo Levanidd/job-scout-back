@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 
 import { api } from "../api"
-import { useAction, useApp } from "../app-context"
+import { useAction, useApp, useLoader } from "../app-context"
 import { SortHeader } from "../components/SortHeader"
 import { Age, Empty, Field, Skeletons } from "../components/common"
 import type { DetectResult, Source, Tier } from "../types"
@@ -129,7 +129,7 @@ function compare(a: Source, b: Source, sort: SourceSort, dir: "asc" | "desc"): n
 
 export function Sources({ onOpenJobs }: { onOpenJobs: (source: Source) => void }) {
   const run = useAction()
-  const { notify, refreshTick, sourcesTick, runningSourceId } = useApp()
+  const { notify, sourcesTick, runningSourceId } = useApp()
   const [sources, setSources] = useState<Source[] | null>(null)
   const [url, setUrl] = useState("")
   const [detecting, setDetecting] = useState(false)
@@ -154,14 +154,7 @@ export function Sources({ onOpenJobs }: { onOpenJobs: (source: Source) => void }
     if (result) setSources(result.sources)
   }, [run])
 
-  useEffect(() => {
-    void load()
-  }, [load])
-
-  useEffect(() => {
-    if (refreshTick === 0 && sourcesTick === 0) return
-    void load(true)
-  }, [refreshTick, sourcesTick, load])
+  useLoader(load, sourcesTick)
 
   const providers = useMemo(() => {
     if (!sources) return []

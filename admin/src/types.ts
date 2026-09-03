@@ -104,8 +104,6 @@ export type DetectResult = {
   error?: string
 }
 
-export type BulkDetectResult = DetectResult & { url: string }
-
 export type ThinkingLevel = "LOW" | "MEDIUM" | "HIGH"
 
 export type ModelOption = { id: string; label: string }
@@ -135,13 +133,6 @@ export type RunResult = {
   error: string | null
   duration_ms: number
   suspicious: number
-}
-
-export type PlannedSource = {
-  id: number
-  label: string
-  provider: string
-  tier: Tier
 }
 
 export type CycleStatus = "idle" | "running" | "done" | "error"

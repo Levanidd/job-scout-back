@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useState } from "react"
 
 import { api } from "../api"
-import { useAction, useApp } from "../app-context"
+import { useAction, useApp, useLoader } from "../app-context"
 import { TagEditor } from "../components/TagEditor"
 import { Skeletons } from "../components/common"
 import type { BlacklistedCompany, PrefilterRules } from "../types"
@@ -13,7 +13,7 @@ function sameTags(left: PrefilterRules, right: PrefilterRules): boolean {
 
 export function Profile() {
   const run = useAction()
-  const { notify, refreshTick, refresh } = useApp()
+  const { notify, refresh } = useApp()
   const [content, setContent] = useState<string | null>(null)
   const [saved, setSaved] = useState("")
   const [prefilter, setPrefilter] = useState<PrefilterRules>({ keep: [], drop: [] })
@@ -35,14 +35,7 @@ export function Profile() {
     setCompanies(result.companies ?? [])
   }, [run])
 
-  useEffect(() => {
-    void load()
-  }, [load])
-
-  useEffect(() => {
-    if (!refreshTick) return
-    void load()
-  }, [refreshTick, load])
+  useLoader(load)
 
   async function save() {
     if (content === null) return

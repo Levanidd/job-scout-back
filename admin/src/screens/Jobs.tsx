@@ -1,7 +1,7 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from "react"
+import { Fragment, useCallback, useRef, useState } from "react"
 
 import { api, type JobFilters, type JobSort } from "../api"
-import { useAction, useApp } from "../app-context"
+import { useAction, useApp, useLoader } from "../app-context"
 import { ConfirmDialog } from "../components/ConfirmDialog"
 import { MultiSelect } from "../components/MultiSelect"
 import { SortHeader } from "../components/SortHeader"
@@ -38,7 +38,7 @@ const DEFAULT_DIR: Record<JobSort, "asc" | "desc"> = {
 
 export function Jobs({ preset }: { preset?: JobFilters }) {
   const run = useAction()
-  const { refreshTick, refresh, notify } = useApp()
+  const { refresh, notify } = useApp()
   const [filters, setFilters] = useState<JobFilters>({
     min_score: 55,
     sort: "score",
@@ -69,23 +69,17 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
     if (result) setJobs(result.jobs)
   }, [run, filters])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  useLoader(load)
 
-  useEffect(() => {
-    if (!refreshTick) return
-    void load(true)
-  }, [refreshTick, load])
+  // The picker follows every filter except the company list itself.
+  const loadCompanies = useCallback(async () => {
+    const result = await run(() =>
+      api.jobCompanies({ status, min_score: minScore, tier, added_days: addedDays, added_from: addedFrom, source_id: sourceId, viewed }),
+    )
+    if (result) setCompanies(result.companies)
+  }, [run, status, minScore, tier, addedDays, addedFrom, sourceId, viewed])
 
-  useEffect(() => {
-    void (async () => {
-      const result = await run(() =>
-        api.jobCompanies({ status, min_score: minScore, tier, added_days: addedDays, added_from: addedFrom, source_id: sourceId, viewed }),
-      )
-      if (result) setCompanies(result.companies)
-    })()
-  }, [run, status, minScore, tier, addedDays, addedFrom, sourceId, viewed, refreshTick])
+  useLoader(loadCompanies)
 
   function patchJob(id: string, next: Partial<Job>) {
     setJobs(
@@ -534,10 +528,11 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
             pending.kind === "applied-off"
               ? "Снять «подался»?"
               : pending.next
-                ? "Отметить как просмотренную?"
+                ? "Пометить как просмотренную?"
                 : "Снять «просмотрено»?"
           }
-          confirmLabel={pending.kind === "applied-off" || !pending.next ? "Снять" : "Отметить"}
+          confirmLabel={pending.kind === "applied-off" || !pending.next ? "Да, снять" : "Да, смотрел"}
+          cancelLabel="Нет"
           busy={confirming}
           onCancel={() => !confirming && setPending(null)}
           onConfirm={() => void confirmPending()}
@@ -548,11 +543,11 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
             </>
           ) : pending.next ? (
             <>
-              Пометить <b>{pending.job.title}</b> как просмотренную.
+              <b>{pending.job.title}</b> получит признак «просмотрено».
             </>
           ) : (
             <>
-              Снять признак просмотрено с <b>{pending.job.title}</b>.
+              С <b>{pending.job.title}</b> снимется признак «просмотрено».
             </>
           )}
         </ConfirmDialog>

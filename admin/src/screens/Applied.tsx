@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 
 import { api } from "../api"
-import { useAction, useApp } from "../app-context"
+import { useAction, useApp, useLoader } from "../app-context"
 import { Age, Empty, Field, ScoreBadge, Skeletons, formatDate, formatSalary } from "../components/common"
 import type { Job, JobStatus } from "../types"
 
@@ -250,7 +250,7 @@ function ManualJobForm({ onCreated, onCancel }: { onCreated: (job: Job) => void;
 
 export function Applied() {
   const run = useAction()
-  const { refreshTick, refresh } = useApp()
+  const { refresh } = useApp()
   const [status, setStatus] = useState<"" | "applied" | "interview" | "rejected">("")
   const [jobs, setJobs] = useState<Job[] | null>(null)
   const [open, setOpen] = useState<Job | null>(null)
@@ -265,14 +265,7 @@ export function Applied() {
     [run, status],
   )
 
-  useEffect(() => {
-    void load()
-  }, [load])
-
-  useEffect(() => {
-    if (!refreshTick) return
-    void load(true)
-  }, [refreshTick, load])
+  useLoader(load)
 
   async function openCard(job: Job) {
     setOpen(job)

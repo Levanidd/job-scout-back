@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useState } from "react"
 
 import { api } from "../api"
-import { useAction, useApp } from "../app-context"
+import { useAction, useApp, useLoader } from "../app-context"
 import { Field } from "../components/common"
 import type { ModelOption, Settings, ThinkingLevel } from "../types"
 
@@ -38,9 +38,7 @@ export function ModelPicker() {
     setModels(list?.models ?? [])
   }, [run, notify])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  useLoader(load)
 
   async function save() {
     setBusy(true)

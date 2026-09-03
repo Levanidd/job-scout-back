@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 
 import { api } from "../api"
-import { useAction, useApp } from "../app-context"
+import { useAction, useApp, useLoader } from "../app-context"
 import { SortHeader } from "../components/SortHeader"
 import { Age, Empty, ScoreBadge, Skeletons, plural } from "../components/common"
 import type { DiscoveredCompany } from "../types"
@@ -56,7 +56,7 @@ function compare(a: DiscoveredCompany, b: DiscoveredCompany, sort: SortKey, dir:
 
 export function Discovery({ onOpenJobs }: { onOpenJobs: (company: DiscoveredCompany) => void }) {
   const run = useAction()
-  const { notify, refreshTick, refresh } = useApp()
+  const { notify, refresh } = useApp()
   const [companies, setCompanies] = useState<DiscoveredCompany[] | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [query, setQuery] = useState("")
@@ -73,14 +73,7 @@ export function Discovery({ onOpenJobs }: { onOpenJobs: (company: DiscoveredComp
     if (result) setCompanies(result.companies)
   }, [run])
 
-  useEffect(() => {
-    void load()
-  }, [load])
-
-  useEffect(() => {
-    if (!refreshTick) return
-    void load(true)
-  }, [refreshTick, load])
+  useLoader(load)
 
   const providers = useMemo(() => {
     if (!companies) return []
