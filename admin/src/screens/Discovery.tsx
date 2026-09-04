@@ -2,11 +2,14 @@ import { useCallback, useMemo, useState } from "react"
 
 import { api } from "../api"
 import { useAction, useApp, useLoader } from "../app-context"
+import { oneOf, text, usePersistentState } from "../persist"
 import { SortHeader } from "../components/SortHeader"
 import { Age, Empty, ScoreBadge, Skeletons, plural } from "../components/common"
 import type { DiscoveredCompany } from "../types"
 
 type StateFilter = "" | "new" | "added" | "dismissed"
+type AtsFilter = "" | "yes" | "no"
+type JobsFilter = "" | "open" | "none"
 type SortKey = "company" | "jobs" | "score" | "seen" | "ats"
 
 const STATE_LABELS: Record<DiscoveredCompany["state"], string> = {
@@ -59,13 +62,22 @@ export function Discovery({ onOpenJobs }: { onOpenJobs: (company: DiscoveredComp
   const { notify, refresh } = useApp()
   const [companies, setCompanies] = useState<DiscoveredCompany[] | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
-  const [query, setQuery] = useState("")
-  const [state, setState] = useState<StateFilter>("new")
-  const [ats, setAts] = useState("")
-  const [hasAts, setHasAts] = useState("")
-  const [jobs, setJobs] = useState("")
-  const [sort, setSort] = useState<SortKey>("score")
-  const [dir, setDir] = useState<"asc" | "desc">("desc")
+  const [query, setQuery] = usePersistentState("discovery.query", "", text)
+  const [state, setState] = usePersistentState<StateFilter>(
+    "discovery.state",
+    "new",
+    oneOf("", "new", "added", "dismissed"),
+  )
+  // The ATS list is built from the loaded companies, so it cannot be enumerated here.
+  const [ats, setAts] = usePersistentState("discovery.ats", "", text)
+  const [hasAts, setHasAts] = usePersistentState<AtsFilter>("discovery.has_ats", "", oneOf("", "yes", "no"))
+  const [jobs, setJobs] = usePersistentState<JobsFilter>("discovery.jobs", "", oneOf("", "open", "none"))
+  const [sort, setSort] = usePersistentState<SortKey>(
+    "discovery.sort",
+    "score",
+    oneOf("company", "jobs", "score", "seen", "ats"),
+  )
+  const [dir, setDir] = usePersistentState<"asc" | "desc">("discovery.dir", "desc", oneOf("asc", "desc"))
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setCompanies(null)
@@ -168,12 +180,12 @@ export function Discovery({ onOpenJobs }: { onOpenJobs: (company: DiscoveredComp
             </option>
           ))}
         </select>
-        <select className="select" value={hasAts} onChange={(event) => setHasAts(event.target.value)}>
+        <select className="select" value={hasAts} onChange={(event) => setHasAts(event.target.value as AtsFilter)}>
           <option value="">ATS любой</option>
           <option value="yes">ATS известен</option>
           <option value="no">ATS не найден</option>
         </select>
-        <select className="select" value={jobs} onChange={(event) => setJobs(event.target.value)}>
+        <select className="select" value={jobs} onChange={(event) => setJobs(event.target.value as JobsFilter)}>
           <option value="">Любые вакансии</option>
           <option value="open">есть открытые</option>
           <option value="none">без открытых</option>

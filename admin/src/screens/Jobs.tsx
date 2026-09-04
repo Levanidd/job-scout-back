@@ -2,6 +2,7 @@ import { Fragment, useCallback, useRef, useState } from "react"
 
 import { api, type JobFilters, type JobSort } from "../api"
 import { useAction, useApp, useLoader } from "../app-context"
+import { usePersistentState } from "../persist"
 import { ConfirmDialog } from "../components/ConfirmDialog"
 import { MultiSelect } from "../components/MultiSelect"
 import { SortHeader } from "../components/SortHeader"
@@ -36,15 +37,50 @@ const DEFAULT_DIR: Record<JobSort, "asc" | "desc"> = {
   added: "desc",
 }
 
+const DEFAULT_FILTERS: JobFilters = { min_score: 55, sort: "score", dir: "desc" }
+
+function str(raw: unknown): string | undefined {
+  return typeof raw === "string" && raw ? raw : undefined
+}
+
+function num(raw: unknown): number | undefined {
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined
+}
+
+/**
+ * Filters are read back field by field because the stored set outlives the
+ * deploy that wrote it. The source filter is dropped on purpose: it only ever
+ * arrives with a preset from the Sources tab, so restoring it would open the
+ * tab on a source nobody picked.
+ */
+function reviveFilters(raw: unknown): JobFilters | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined
+  const stored = raw as Record<string, unknown>
+  const companies = Array.isArray(stored.companies)
+    ? stored.companies.filter((item): item is string => typeof item === "string")
+    : []
+  return {
+    status: str(stored.status),
+    tier: str(stored.tier),
+    min_score: num(stored.min_score) ?? 0,
+    added_days: num(stored.added_days),
+    added_from: str(stored.added_from),
+    viewed: stored.viewed === "yes" || stored.viewed === "no" ? stored.viewed : undefined,
+    companies: companies.length > 0 ? companies : undefined,
+    sort: typeof stored.sort === "string" && stored.sort in DEFAULT_DIR ? (stored.sort as JobSort) : "score",
+    dir: stored.dir === "asc" ? "asc" : "desc",
+  }
+}
+
 export function Jobs({ preset }: { preset?: JobFilters }) {
   const run = useAction()
   const { refresh, notify } = useApp()
-  const [filters, setFilters] = useState<JobFilters>({
-    min_score: 55,
-    sort: "score",
-    dir: "desc",
-    ...preset,
-  })
+  const [filters, setFilters] = usePersistentState<JobFilters>(
+    "jobs.filters",
+    { ...DEFAULT_FILTERS, ...preset },
+    reviveFilters,
+    { store: !preset },
+  )
   const [jobs, setJobs] = useState<Job[] | null>(null)
   const [companies, setCompanies] = useState<CompanyFacet[]>([])
   const [open, setOpen] = useState<string | null>(null)

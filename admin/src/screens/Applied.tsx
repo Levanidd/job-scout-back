@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 
 import { api } from "../api"
 import { useAction, useApp, useLoader } from "../app-context"
+import { oneOf, usePersistentState } from "../persist"
 import { Age, Empty, Field, ScoreBadge, Skeletons, formatDate, formatSalary } from "../components/common"
 import type { Job, JobStatus } from "../types"
 
@@ -251,7 +252,11 @@ function ManualJobForm({ onCreated, onCancel }: { onCreated: (job: Job) => void;
 export function Applied() {
   const run = useAction()
   const { refresh } = useApp()
-  const [status, setStatus] = useState<"" | "applied" | "interview" | "rejected">("")
+  const [status, setStatus] = usePersistentState(
+    "applied.status",
+    "",
+    oneOf("", "applied", "interview", "rejected"),
+  )
   const [jobs, setJobs] = useState<Job[] | null>(null)
   const [open, setOpen] = useState<Job | null>(null)
   const [composing, setComposing] = useState(false)

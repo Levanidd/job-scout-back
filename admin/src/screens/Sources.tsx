@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react"
 
 import { api } from "../api"
 import { useAction, useApp, useLoader } from "../app-context"
+import { oneOf, text, usePersistentState } from "../persist"
 import { SortHeader } from "../components/SortHeader"
 import { Age, Empty, Field, Skeletons } from "../components/common"
 import type { DetectResult, Source, Tier } from "../types"
@@ -65,6 +66,11 @@ function labelFor(raw: string, token: string | null): string {
 }
 
 type Pending = DetectResult & { url: string; label: string; tier: Tier }
+
+type KindFilter = "" | "company" | "query"
+type TierFilter = "" | Tier
+type EnabledFilter = "" | "on" | "off"
+type StatusFilter = "" | "ok" | "error" | "never"
 
 type SourceSort = "label" | "provider" | "kind" | "tier" | "jobs" | "run" | "status" | "added"
 
@@ -139,14 +145,19 @@ export function Sources({ onOpenJobs }: { onOpenJobs: (source: Source) => void }
   const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number; current: string } | null>(null)
   const [editing, setEditing] = useState<number | null>(null)
   const [draft, setDraft] = useState("")
-  const [query, setQuery] = useState("")
-  const [kind, setKind] = useState("")
-  const [tier, setTier] = useState("")
-  const [enabled, setEnabled] = useState("")
-  const [status, setStatus] = useState("")
-  const [provider, setProvider] = useState("")
-  const [sort, setSort] = useState<SourceSort>("added")
-  const [dir, setDir] = useState<"asc" | "desc">("desc")
+  const [query, setQuery] = usePersistentState("sources.query", "", text)
+  const [kind, setKind] = usePersistentState<KindFilter>("sources.kind", "", oneOf("", "company", "query"))
+  const [tier, setTier] = usePersistentState<TierFilter>("sources.tier", "", oneOf("", "watchlist", "discovery"))
+  const [enabled, setEnabled] = usePersistentState<EnabledFilter>("sources.enabled", "", oneOf("", "on", "off"))
+  const [status, setStatus] = usePersistentState<StatusFilter>("sources.status", "", oneOf("", "ok", "error", "never"))
+  // Providers come from the loaded sources, so they cannot be enumerated here.
+  const [provider, setProvider] = usePersistentState("sources.provider", "", text)
+  const [sort, setSort] = usePersistentState<SourceSort>(
+    "sources.sort",
+    "added",
+    oneOf("label", "provider", "kind", "tier", "jobs", "run", "status", "added"),
+  )
+  const [dir, setDir] = usePersistentState<"asc" | "desc">("sources.dir", "desc", oneOf("asc", "desc"))
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setSources(null)
@@ -407,22 +418,22 @@ export function Sources({ onOpenJobs }: { onOpenJobs: (source: Source) => void }
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
-        <select className="select" value={kind} onChange={(event) => setKind(event.target.value)}>
+        <select className="select" value={kind} onChange={(event) => setKind(event.target.value as KindFilter)}>
           <option value="">Все типы</option>
           <option value="company">компания</option>
           <option value="query">запрос</option>
         </select>
-        <select className="select" value={tier} onChange={(event) => setTier(event.target.value)}>
+        <select className="select" value={tier} onChange={(event) => setTier(event.target.value as TierFilter)}>
           <option value="">Все уровни</option>
           <option value="watchlist">watchlist</option>
           <option value="discovery">discovery</option>
         </select>
-        <select className="select" value={enabled} onChange={(event) => setEnabled(event.target.value)}>
+        <select className="select" value={enabled} onChange={(event) => setEnabled(event.target.value as EnabledFilter)}>
           <option value="">Вкл и выкл</option>
           <option value="on">включённые</option>
           <option value="off">выключенные</option>
         </select>
-        <select className="select" value={status} onChange={(event) => setStatus(event.target.value)}>
+        <select className="select" value={status} onChange={(event) => setStatus(event.target.value as StatusFilter)}>
           <option value="">Любой статус</option>
           <option value="ok">ок</option>
           <option value="error">ошибка</option>
