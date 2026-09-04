@@ -32,6 +32,7 @@ export type Job = {
   status: JobStatus
   applied_at: string | null
   viewed_at: string | null
+  later_at: string | null
   notes?: string | null
   description?: string | null
   tier: Tier
@@ -123,6 +124,30 @@ export type PrefilterRules = {
 export type BlacklistedCompany = {
   company_key: string
   company: string
+}
+
+export type StatsBucket = {
+  start: string
+  applied: number
+  interview: number
+  rejected: number
+  total: number
+}
+
+export type JobStats = {
+  found: number
+  open: number
+  viewed: number
+  later: number
+  applied: number
+  pipeline: {
+    waiting: number
+    interview: number
+    rejected: number
+  }
+  companies: Array<{ company_key: string; company: string; n: number }>
+  weeks: StatsBucket[]
+  months: StatsBucket[]
 }
 
 export type RunResult = {

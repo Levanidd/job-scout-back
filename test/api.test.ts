@@ -131,6 +131,37 @@ describe("jobs", () => {
     expect((await call("/api/jobs?companies=other")).body.jobs).toHaveLength(0)
   })
 
+  it("marks a job for later without touching its status", async () => {
+    const id = await seedJob()
+
+    expect((await call("/api/jobs?later=no")).body.jobs).toHaveLength(1)
+    expect((await call("/api/jobs?later=yes")).body.jobs).toHaveLength(0)
+
+    const res = await call(`/api/jobs/${id}`, { method: "PATCH", body: JSON.stringify({ later: true }) })
+    expect(res.body).toMatchObject({ status: "new" })
+    expect(res.body.later_at).toBeTruthy()
+
+    expect((await call("/api/jobs?later=yes")).body.jobs).toHaveLength(1)
+    expect((await call("/api/jobs?later=no")).body.jobs).toHaveLength(0)
+
+    await call(`/api/jobs/${id}`, { method: "PATCH", body: JSON.stringify({ later: false }) })
+    expect((await call("/api/jobs?later=yes")).body.jobs).toHaveLength(0)
+  })
+
+  it("filters by whether an application was sent, rejections included", async () => {
+    const id = await seedJob()
+    expect((await call("/api/jobs?applied=no")).body.jobs).toHaveLength(1)
+    expect((await call("/api/jobs?applied=yes")).body.jobs).toHaveLength(0)
+
+    await call(`/api/jobs/${id}`, { method: "PATCH", body: JSON.stringify({ status: "applied" }) })
+    expect((await call("/api/jobs?applied=yes")).body.jobs).toHaveLength(1)
+    expect((await call("/api/jobs?applied=no")).body.jobs).toHaveLength(0)
+
+    // A rejection is the outcome of an application, so it stays on the applied side.
+    await call(`/api/jobs/${id}`, { method: "PATCH", body: JSON.stringify({ status: "rejected" }) })
+    expect((await call("/api/jobs?applied=yes&status=any")).body.jobs).toHaveLength(1)
+  })
+
   it("hides blacklisted companies from the list and the picker", async () => {
     await seedJob()
     expect((await call("/api/jobs/companies")).body.companies).toHaveLength(1)
@@ -205,6 +236,65 @@ describe("applied", () => {
     })
     expect(res.status).toBe(400)
     expect(res.body.error).toContain("ссылка")
+  })
+})
+
+describe("stats", () => {
+  it("returns an empty funnel and twelve zeroed buckets", async () => {
+    const res = await call("/api/stats")
+    expect(res.status).toBe(200)
+    expect(res.body).toMatchObject({
+      found: 0,
+      open: 0,
+      viewed: 0,
+      later: 0,
+      applied: 0,
+      pipeline: { waiting: 0, interview: 0, rejected: 0 },
+      companies: [],
+    })
+    expect(res.body.weeks).toHaveLength(12)
+    expect(res.body.months).toHaveLength(12)
+    expect(res.body.weeks.every((row: { total: number }) => row.total === 0)).toBe(true)
+    expect(res.body.months.at(-1).start).toMatch(/^\d{4}-\d{2}$/)
+  })
+
+  it("counts found, viewed and applied, and splits the pipeline", async () => {
+    const id = await seedJob()
+    await call(`/api/jobs/${id}`, { method: "PATCH", body: JSON.stringify({ viewed: true, later: true }) })
+    await call(`/api/jobs/${id}`, { method: "PATCH", body: JSON.stringify({ status: "applied" }) })
+
+    await env.DB.prepare(
+      `INSERT INTO jobs (id, source_id, external_id, company, company_key, title, url, status, applied_at, first_seen_at, last_seen_at)
+       SELECT 'j-int', source_id, '2', company, company_key, 'Interview PM', 'https://acme.example/2',
+              'interview', datetime('now', '-10 days'), datetime('now'), datetime('now') FROM jobs LIMIT 1`,
+    ).run()
+    await env.DB.prepare(
+      `INSERT INTO jobs (id, source_id, external_id, company, company_key, title, url, status, applied_at, first_seen_at, last_seen_at)
+       SELECT 'j-rej', source_id, '3', company, company_key, 'Rejected PM', 'https://acme.example/3',
+              'rejected', datetime('now'), datetime('now'), datetime('now') FROM jobs LIMIT 1`,
+    ).run()
+
+    const res = await call("/api/stats")
+    expect(res.body).toMatchObject({
+      found: 3,
+      open: 3,
+      viewed: 1,
+      later: 1,
+      applied: 3,
+      pipeline: { waiting: 1, interview: 1, rejected: 1 },
+    })
+    expect(res.body.companies).toEqual([{ company_key: "acme", company: "Acme GmbH", n: 3 }])
+    expect(res.body.weeks.reduce((sum: number, row: { total: number }) => sum + row.total, 0)).toBe(3)
+    expect(res.body.months.reduce((sum: number, row: { total: number }) => sum + row.total, 0)).toBe(3)
+  })
+
+  it("drops blacklisted companies from the funnel", async () => {
+    await seedJob()
+    await call("/api/profile", {
+      method: "PUT",
+      body: JSON.stringify({ blacklist: [{ company_key: "acme", company: "Acme" }] }),
+    })
+    expect((await call("/api/stats")).body.found).toBe(0)
   })
 })
 

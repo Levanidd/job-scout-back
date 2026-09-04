@@ -13,6 +13,7 @@ import type {
   PrefilterRules,
   Settings,
   Source,
+  JobStats,
   ThinkingLevel,
   Tier,
 } from "./types"
@@ -64,7 +65,16 @@ function post<T>(path: string, body?: unknown): Promise<T> {
   return request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined })
 }
 
-export type JobSort = "applied" | "viewed" | "title" | "company" | "score" | "posted" | "updated" | "added"
+export type JobSort =
+  | "applied"
+  | "viewed"
+  | "later"
+  | "title"
+  | "company"
+  | "score"
+  | "posted"
+  | "updated"
+  | "added"
 
 export type JobFilters = {
   status?: string
@@ -76,6 +86,8 @@ export type JobFilters = {
   added_days?: number
   added_from?: string
   viewed?: "yes" | "no"
+  later?: "yes" | "no"
+  applied?: "yes" | "no"
   sort?: JobSort
   dir?: "asc" | "desc"
 }
@@ -90,6 +102,8 @@ function jobQuery(filters: JobFilters): string {
   if (filters.added_days) params.set("added_days", String(filters.added_days))
   if (filters.added_from) params.set("added_from", filters.added_from)
   if (filters.viewed) params.set("viewed", filters.viewed)
+  if (filters.later) params.set("later", filters.later)
+  if (filters.applied) params.set("applied", filters.applied)
   if (filters.sort) params.set("sort", filters.sort)
   if (filters.dir) params.set("dir", filters.dir)
   const query = params.toString()
@@ -103,9 +117,13 @@ export type JobPatch = {
   notes: string | null
   applied_at: string | null
   viewed_at: string | null
+  later_at: string | null
 }
 
-function patchJob(id: string, body: { status?: JobStatus; notes?: string; viewed?: boolean }): Promise<JobPatch> {
+function patchJob(
+  id: string,
+  body: { status?: JobStatus; notes?: string; viewed?: boolean; later?: boolean },
+): Promise<JobPatch> {
   return request(`/jobs/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) })
 }
 
@@ -130,6 +148,10 @@ export const api = {
     return patchJob(id, { viewed })
   },
 
+  setJobLater(id: string, later: boolean): Promise<JobPatch> {
+    return patchJob(id, { later })
+  },
+
   saveJobNotes(id: string, notes: string): Promise<JobPatch> {
     return patchJob(id, { notes })
   },
@@ -141,6 +163,10 @@ export const api = {
   applied(status?: string): Promise<{ jobs: Job[] }> {
     const query = status ? `?status=${encodeURIComponent(status)}` : ""
     return request(`/applied${query}`)
+  },
+
+  stats(): Promise<JobStats> {
+    return request("/stats")
   },
 
   createApplied(body: {

@@ -102,9 +102,14 @@ jobs.get("/api/jobs/:id", async (c) => {
 
 jobs.patch("/api/jobs/:id", async (c) => {
   const id = c.req.param("id")
-  const body = await c.req.json<{ status?: string; notes?: string; viewed?: boolean }>()
+  const body = await c.req.json<{ status?: string; notes?: string; viewed?: boolean; later?: boolean }>()
   if (body.status && !STATUSES.includes(body.status)) return c.json({ error: "bad status" }, 400)
-  if (body.status === undefined && body.notes === undefined && typeof body.viewed !== "boolean") {
+  if (
+    body.status === undefined &&
+    body.notes === undefined &&
+    typeof body.viewed !== "boolean" &&
+    typeof body.later !== "boolean"
+  ) {
     return c.json({ error: "nothing to update" }, 400)
   }
 
@@ -128,21 +133,33 @@ jobs.patch("/api/jobs/:id", async (c) => {
   if (typeof body.viewed === "boolean") {
     sets.push(body.viewed ? "viewed_at = COALESCE(viewed_at, datetime('now'))" : "viewed_at = NULL")
   }
+  if (typeof body.later === "boolean") {
+    sets.push(body.later ? "later_at = COALESCE(later_at, datetime('now'))" : "later_at = NULL")
+  }
 
   const updated = await c.env.DB.prepare(`UPDATE jobs SET ${sets.join(", ")} WHERE id = ?`)
     .bind(...binds, id)
     .run()
   if (!Number(updated.meta.changes)) return c.json({ error: "not found" }, 404)
 
-  const row = await c.env.DB.prepare(`SELECT status, notes, applied_at, viewed_at FROM jobs WHERE id = ?`)
+  const row = await c.env.DB.prepare(
+    `SELECT status, notes, applied_at, viewed_at, later_at FROM jobs WHERE id = ?`,
+  )
     .bind(id)
-    .first<{ status: string; notes: string | null; applied_at: string | null; viewed_at: string | null }>()
+    .first<{
+      status: string
+      notes: string | null
+      applied_at: string | null
+      viewed_at: string | null
+      later_at: string | null
+    }>()
   return c.json({
     ok: true,
     status: row?.status ?? body.status ?? "",
     notes: row?.notes ?? null,
     applied_at: row?.applied_at ?? null,
     viewed_at: row?.viewed_at ?? null,
+    later_at: row?.later_at ?? null,
   })
 })
 

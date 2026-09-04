@@ -8,8 +8,9 @@ import { Age, Empty, ScoreBadge, Skeletons, plural } from "../components/common"
 import type { DiscoveredCompany } from "../types"
 
 type StateFilter = "" | "new" | "added" | "dismissed"
-type AtsFilter = "" | "yes" | "no"
 type JobsFilter = "" | "open" | "none"
+/** "" any, "known"/"none" ask whether an ATS was detected, anything else names one. */
+type AtsFilter = string
 type SortKey = "company" | "jobs" | "score" | "seen" | "ats"
 
 const STATE_LABELS: Record<DiscoveredCompany["state"], string> = {
@@ -68,9 +69,8 @@ export function Discovery({ onOpenJobs }: { onOpenJobs: (company: DiscoveredComp
     "new",
     oneOf("", "new", "added", "dismissed"),
   )
-  // The ATS list is built from the loaded companies, so it cannot be enumerated here.
-  const [ats, setAts] = usePersistentState("discovery.ats", "", text)
-  const [hasAts, setHasAts] = usePersistentState<AtsFilter>("discovery.has_ats", "", oneOf("", "yes", "no"))
+  // Options are built from the loaded companies, so they cannot be enumerated here.
+  const [ats, setAts] = usePersistentState<AtsFilter>("discovery.ats", "", text)
   const [jobs, setJobs] = usePersistentState<JobsFilter>("discovery.jobs", "", oneOf("", "open", "none"))
   const [sort, setSort] = usePersistentState<SortKey>(
     "discovery.sort",
@@ -98,9 +98,9 @@ export function Discovery({ onOpenJobs }: { onOpenJobs: (company: DiscoveredComp
     return companies
       .filter((item) => {
         if (state && item.state !== state) return false
-        if (ats && item.detected_ats !== ats) return false
-        if (hasAts === "yes" && !item.detected_ats) return false
-        if (hasAts === "no" && item.detected_ats) return false
+        if (ats === "known" && !item.detected_ats) return false
+        else if (ats === "none" && item.detected_ats) return false
+        else if (ats && ats !== "known" && item.detected_ats !== ats) return false
         if (jobs === "open" && item.jobs_open <= 0) return false
         if (jobs === "none" && item.jobs_open > 0) return false
         if (!needle) return true
@@ -108,7 +108,7 @@ export function Discovery({ onOpenJobs }: { onOpenJobs: (company: DiscoveredComp
         return hay.includes(needle)
       })
       .sort((a, b) => compare(a, b, sort, dir))
-  }, [companies, query, state, ats, hasAts, jobs, sort, dir])
+  }, [companies, query, state, ats, jobs, sort, dir])
 
   function sortBy(column: SortKey) {
     if (sort === column) {
@@ -174,16 +174,13 @@ export function Discovery({ onOpenJobs }: { onOpenJobs: (company: DiscoveredComp
         </select>
         <select className="select" value={ats} onChange={(event) => setAts(event.target.value)}>
           <option value="">Все ATS</option>
+          <option value="known">ATS известен</option>
+          <option value="none">ATS не найден</option>
           {providers.map((item) => (
             <option key={item} value={item}>
               {item}
             </option>
           ))}
-        </select>
-        <select className="select" value={hasAts} onChange={(event) => setHasAts(event.target.value as AtsFilter)}>
-          <option value="">ATS любой</option>
-          <option value="yes">ATS известен</option>
-          <option value="no">ATS не найден</option>
         </select>
         <select className="select" value={jobs} onChange={(event) => setJobs(event.target.value as JobsFilter)}>
           <option value="">Любые вакансии</option>

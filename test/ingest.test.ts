@@ -170,8 +170,8 @@ describe("upsertJobs", () => {
     await upsertJobs(env, query, [job({ externalId: "9", url: "https://aggregator.example/9" })], new Set())
     await env.DB.prepare(
       `UPDATE jobs SET status = 'applied', applied_at = '2026-01-02 10:00:00',
-         viewed_at = '2026-01-01 10:00:00', notes = 'sent CV', score = 88,
-         first_seen_at = '2025-12-01 00:00:00'`,
+         viewed_at = '2026-01-01 10:00:00', later_at = '2026-01-03 10:00:00',
+         notes = 'sent CV', score = 88, first_seen_at = '2025-12-01 00:00:00'`,
     ).run()
 
     const company = await addSource()
@@ -179,7 +179,7 @@ describe("upsertJobs", () => {
 
     const stored = await rows<Record<string, unknown>>(
       env,
-      `SELECT url, status, applied_at, viewed_at, notes, score, first_seen_at FROM jobs`,
+      `SELECT url, status, applied_at, viewed_at, later_at, notes, score, first_seen_at FROM jobs`,
     )
     expect(stored).toHaveLength(1)
     expect(stored[0]).toMatchObject({
@@ -187,6 +187,7 @@ describe("upsertJobs", () => {
       status: "applied",
       applied_at: "2026-01-02 10:00:00",
       viewed_at: "2026-01-01 10:00:00",
+      later_at: "2026-01-03 10:00:00",
       notes: "sent CV",
       score: 88,
       first_seen_at: "2025-12-01 00:00:00",

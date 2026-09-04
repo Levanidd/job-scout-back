@@ -8,7 +8,7 @@ export type Ctx = Context<{ Bindings: Bindings }>
 /** Descriptions run to kilobytes each and no list ever shows them. */
 export const JOB_COLUMNS = `j.id, j.source_id, j.company, j.company_key, j.title, j.location, j.url,
   j.posted_at, j.first_seen_at, j.last_seen_at, j.changed_at, j.salary_min, j.salary_max, j.salary_currency,
-  j.score, j.score_reason, j.flags, j.status, j.applied_at, j.viewed_at`
+  j.score, j.score_reason, j.flags, j.status, j.applied_at, j.viewed_at, j.later_at`
 
 /** A posting is only ever shown with the source that carries it. */
 export const JOB_SOURCE = `FROM jobs j JOIN sources s ON s.id = j.source_id`
@@ -18,6 +18,7 @@ export type Where = { clauses: string; binds: (string | number)[] }
 const JOB_ORDER: Record<string, string> = {
   applied: `(j.applied_at IS NOT NULL)`,
   viewed: `(j.viewed_at IS NOT NULL)`,
+  later: `(j.later_at IS NOT NULL)`,
   title: "j.title COLLATE NOCASE",
   company: "j.company COLLATE NOCASE",
   score: "j.score",
@@ -91,6 +92,16 @@ export async function jobFilters(c: Ctx, withCompanies: boolean): Promise<Where>
   const viewed = c.req.query("viewed")
   if (viewed === "yes") clauses.push("j.viewed_at IS NOT NULL")
   if (viewed === "no") clauses.push("j.viewed_at IS NULL")
+
+  const later = c.req.query("later")
+  if (later === "yes") clauses.push("j.later_at IS NOT NULL")
+  if (later === "no") clauses.push("j.later_at IS NULL")
+
+  // A rejection keeps applied_at, so "куда подался" still covers the ones that
+  // came to nothing — which is the point of asking.
+  const applied = c.req.query("applied")
+  if (applied === "yes") clauses.push("j.applied_at IS NOT NULL")
+  if (applied === "no") clauses.push("j.applied_at IS NULL")
 
   return { clauses: clauses.join(" AND "), binds }
 }

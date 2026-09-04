@@ -20,6 +20,14 @@ const STATUS_LABELS: Record<JobStatus, string> = {
   off_profile: "вне профиля",
 }
 
+/**
+ * Every status still gets a label on the card, but only these three are worth
+ * browsing by. The application pipeline has a tab of its own, `notified` and
+ * `off_profile` are bookkeeping the machine does, and «Все, включая отсеянные»
+ * already brings the prefiltered pile back.
+ */
+const FILTER_STATUSES: JobStatus[] = ["new", "saved", "ignored"]
+
 const ACTIONS: Array<{ status: JobStatus; label: string }> = [
   { status: "saved", label: "Сохранить" },
   { status: "rejected", label: "Отказ" },
@@ -29,6 +37,7 @@ const ACTIONS: Array<{ status: JobStatus; label: string }> = [
 const DEFAULT_DIR: Record<JobSort, "asc" | "desc"> = {
   applied: "desc",
   viewed: "desc",
+  later: "desc",
   title: "asc",
   company: "asc",
   score: "desc",
@@ -59,13 +68,16 @@ function reviveFilters(raw: unknown): JobFilters | undefined {
   const companies = Array.isArray(stored.companies)
     ? stored.companies.filter((item): item is string => typeof item === "string")
     : []
+  const status = str(stored.status)
   return {
-    status: str(stored.status),
+    status: status === "any" || FILTER_STATUSES.includes(status as JobStatus) ? status : undefined,
     tier: str(stored.tier),
     min_score: num(stored.min_score) ?? 0,
     added_days: num(stored.added_days),
     added_from: str(stored.added_from),
     viewed: stored.viewed === "yes" || stored.viewed === "no" ? stored.viewed : undefined,
+    later: stored.later === "yes" || stored.later === "no" ? stored.later : undefined,
+    applied: stored.applied === "yes" || stored.applied === "no" ? stored.applied : undefined,
     companies: companies.length > 0 ? companies : undefined,
     sort: typeof stored.sort === "string" && stored.sort in DEFAULT_DIR ? (stored.sort as JobSort) : "score",
     dir: stored.dir === "asc" ? "asc" : "desc",
@@ -92,11 +104,24 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
     | null
   >(null)
   const [confirming, setConfirming] = useState(false)
+  // "с даты…" has to stay picked while the date field is still empty, which the
+  // filters alone cannot say.
+  const [customAdded, setCustomAdded] = useState(false)
 
   // Unchecking "откликнулся" should not erase where the job stood before.
   const previous = useRef(new Map<string, JobStatus>())
 
-  const { status, min_score: minScore, tier, added_days: addedDays, added_from: addedFrom, source_id: sourceId, viewed } = filters
+  const {
+    status,
+    min_score: minScore,
+    tier,
+    added_days: addedDays,
+    added_from: addedFrom,
+    source_id: sourceId,
+    viewed,
+    later,
+    applied,
+  } = filters
   const picked = filters.companies ?? []
 
   const load = useCallback(async (silent = false) => {
@@ -110,29 +135,51 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
   // The picker follows every filter except the company list itself.
   const loadCompanies = useCallback(async () => {
     const result = await run(() =>
-      api.jobCompanies({ status, min_score: minScore, tier, added_days: addedDays, added_from: addedFrom, source_id: sourceId, viewed }),
+      api.jobCompanies({
+        status,
+        min_score: minScore,
+        tier,
+        added_days: addedDays,
+        added_from: addedFrom,
+        source_id: sourceId,
+        viewed,
+        later,
+        applied,
+      }),
     )
     if (result) setCompanies(result.companies)
-  }, [run, status, minScore, tier, addedDays, addedFrom, sourceId, viewed])
+  }, [run, status, minScore, tier, addedDays, addedFrom, sourceId, viewed, later, applied])
 
   useLoader(loadCompanies)
 
+  /** A row the edit just pushed out of the filter should leave, as a refetch would drop it. */
+  function stillMatches(job: Job): boolean {
+    if (viewed && Boolean(job.viewed_at) !== (viewed === "yes")) return false
+    if (later && Boolean(job.later_at) !== (later === "yes")) return false
+    if (applied && Boolean(job.applied_at) !== (applied === "yes")) return false
+    return true
+  }
+
   function patchJob(id: string, next: Partial<Job>) {
     setJobs(
-      (prev) => {
-        const updated = prev?.map((item) => (item.id === id ? { ...item, ...next } : item)) ?? null
-        if (!updated) return updated
-        if (filters.viewed === "yes") return updated.filter((item) => item.viewed_at)
-        if (filters.viewed === "no") return updated.filter((item) => !item.viewed_at)
-        return updated
-      },
+      (prev) => prev?.map((item) => (item.id === id ? { ...item, ...next } : item)).filter(stillMatches) ?? null,
     )
   }
 
   async function setStatus(job: Job, next: JobStatus) {
     const result = await run(() => api.setJobStatus(job.id, next))
     if (!result) return
-    patchJob(job.id, { status: result.status, applied_at: result.applied_at, viewed_at: result.viewed_at })
+    patchJob(job.id, {
+      status: result.status,
+      applied_at: result.applied_at,
+      viewed_at: result.viewed_at,
+      later_at: result.later_at,
+    })
+  }
+
+  async function toggleLater(job: Job) {
+    const result = await run(() => api.setJobLater(job.id, !job.later_at))
+    if (result) patchJob(job.id, { later_at: result.later_at })
   }
 
   function inPipeline(job: Job): boolean {
@@ -230,6 +277,7 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
 
   const sort = filters.sort ?? "score"
   const dir = filters.dir ?? "desc"
+  const addedMode = filters.added_from || customAdded ? "custom" : String(filters.added_days ?? "")
 
   return (
     <>
@@ -263,17 +311,16 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
             const next = event.target.value || undefined
             // Prefiltered jobs were never scored, so a score threshold would
             // silently empty the very list the user just asked for.
-            const unscored = next === "any" || next === "off_profile"
             setFilters((prev) => ({
               ...prev,
               status: next,
-              min_score: unscored ? 0 : prev.min_score,
+              min_score: next === "any" ? 0 : prev.min_score,
             }))
           }}
         >
           <option value="">По профилю</option>
           <option value="any">Все, включая отсеянные</option>
-          {(Object.keys(STATUS_LABELS) as JobStatus[]).map((item) => (
+          {FILTER_STATUSES.map((item) => (
             <option key={item} value={item}>
               {STATUS_LABELS[item]}
             </option>
@@ -297,13 +344,43 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
 
         <select
           className="select"
-          value={filters.added_from ? "from" : String(filters.added_days ?? "")}
-          onChange={(event) => {
-            const value = event.target.value
-            if (value === "from") return
+          value={filters.later ?? ""}
+          onChange={(event) =>
             setFilters((prev) => ({
               ...prev,
-              added_days: value ? Number(value) : undefined,
+              later: event.target.value === "yes" || event.target.value === "no" ? event.target.value : undefined,
+            }))
+          }
+        >
+          <option value="">Отложенные и нет</option>
+          <option value="yes">Только «посмотреть позже»</option>
+          <option value="no">Кроме отложенных</option>
+        </select>
+
+        <select
+          className="select"
+          value={filters.applied ?? ""}
+          onChange={(event) =>
+            setFilters((prev) => ({
+              ...prev,
+              applied: event.target.value === "yes" || event.target.value === "no" ? event.target.value : undefined,
+            }))
+          }
+        >
+          <option value="">Отклики и нет</option>
+          <option value="no">Куда не подавался</option>
+          <option value="yes">Только куда подался</option>
+        </select>
+
+        <select
+          className="select"
+          value={addedMode}
+          onChange={(event) => {
+            const value = event.target.value
+            setCustomAdded(value === "custom")
+            setFilters((prev) => ({
+              ...prev,
+              added_days: value && value !== "custom" ? Number(value) : undefined,
               added_from: undefined,
             }))
           }}
@@ -313,22 +390,24 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
           <option value="3">за 3 дня</option>
           <option value="7">за неделю</option>
           <option value="30">за месяц</option>
-          {filters.added_from ? <option value="from">с {filters.added_from}</option> : null}
+          <option value="custom">с даты…</option>
         </select>
 
-        <input
-          className="input"
-          type="date"
-          title="Добавлена не раньше этой даты"
-          value={filters.added_from ?? ""}
-          onChange={(event) =>
-            setFilters((prev) => ({
-              ...prev,
-              added_from: event.target.value || undefined,
-              added_days: undefined,
-            }))
-          }
-        />
+        {addedMode === "custom" ? (
+          <input
+            className="input"
+            type="date"
+            title="Добавлена не раньше этой даты"
+            value={filters.added_from ?? ""}
+            onChange={(event) =>
+              setFilters((prev) => ({
+                ...prev,
+                added_from: event.target.value || undefined,
+                added_days: undefined,
+              }))
+            }
+          />
+        ) : null}
 
         {filters.source_id ? (
           <button
@@ -403,6 +482,15 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
                     className="col-check"
                     title="Отметьте, если уже смотрели вакансию"
                   />
+                  <SortHeader
+                    column="later"
+                    label="Позже"
+                    sort={sort}
+                    dir={dir}
+                    onSort={sortBy}
+                    className="col-check"
+                    title="Отложить, чтобы вернуться к вакансии"
+                  />
                   <SortHeader column="title" label="Вакансия" sort={sort} dir={dir} onSort={sortBy} />
                   <SortHeader column="company" label="Компания" sort={sort} dir={dir} onSort={sortBy} className="col-company" />
                   <SortHeader column="score" label="Score" sort={sort} dir={dir} onSort={sortBy} className="col-score" />
@@ -459,6 +547,15 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
                           onChange={(event) => requestViewed(job, event.target.checked)}
                         />
                       </td>
+                      <td className="col-check">
+                        <input
+                          type="checkbox"
+                          className="checkbox"
+                          checked={Boolean(job.later_at)}
+                          aria-label={`Посмотреть позже: ${job.title}`}
+                          onChange={() => void toggleLater(job)}
+                        />
+                      </td>
                       <td>
                         <a href={job.url} target="_blank" rel="noreferrer">
                           {job.title}
@@ -507,7 +604,7 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
 
                     {open === job.id ? (
                       <tr className="row-details">
-                        <td colSpan={9}>
+                        <td colSpan={10}>
                           {job.score_reason ? (
                             <p className="muted">
                               {job.score_reason === "prefilter"
@@ -519,6 +616,7 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
                           <div className="row-tight" style={{ flexWrap: "wrap" }}>
                             <span className="badge badge-neutral">{STATUS_LABELS[job.status]}</span>
                             {job.viewed_at ? <span className="badge badge-neutral">просмотрена</span> : null}
+                            {job.later_at ? <span className="badge badge-accent">посмотреть позже</span> : null}
                             <span className="badge badge-neutral">
                               {job.tier === "watchlist" ? "watchlist" : "discovery"}
                             </span>

@@ -62,6 +62,7 @@ export type JobRow = {
   notes?: string | null
   applied_at?: string | null
   viewed_at?: string | null
+  later_at?: string | null
   changed_at?: string | null
   salary_min?: number | null
   salary_max?: number | null

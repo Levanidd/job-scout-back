@@ -8,6 +8,7 @@ import { jobs } from "./routes/jobs"
 import { profile } from "./routes/profile"
 import { run } from "./routes/run"
 import { sources } from "./routes/sources"
+import { stats } from "./routes/stats"
 import type { Bindings } from "./types"
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -29,6 +30,7 @@ app.get("/api/health", (c) => c.json({ ok: true, service: "jobradar", time: new 
 app.route("/", sources)
 app.route("/", discovery)
 app.route("/", jobs)
+app.route("/", stats)
 app.route("/", profile)
 app.route("/", run)
 

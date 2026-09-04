@@ -50,6 +50,7 @@ type TwinRow = {
   first_seen_at: string
   applied_at: string | null
   viewed_at: string | null
+  later_at: string | null
   notes: string | null
   status: string
   score: number | null
@@ -155,8 +156,8 @@ export async function upsertJobs(
   const openings = [...new Set(wanted.filter((row) => !present.has(row.id) && row.opening).map((row) => row.opening!))]
   for (const twin of await selectIn<TwinRow & { dedup_key: string }>(
     env,
-    (list) => `SELECT j.id, j.dedup_key, s.kind, j.first_seen_at, j.applied_at, j.viewed_at, j.notes, j.status,
-                 j.score, j.score_reason, j.flags
+    (list) => `SELECT j.id, j.dedup_key, s.kind, j.first_seen_at, j.applied_at, j.viewed_at, j.later_at,
+                 j.notes, j.status, j.score, j.score_reason, j.flags
        FROM jobs j JOIN sources s ON s.id = j.source_id
        WHERE j.closed_at IS NULL AND j.dedup_key IN (${list})`,
     openings,
@@ -264,6 +265,7 @@ function inheritUpdate(env: Bindings, inherit: TwinRow, id: string): D1PreparedS
        first_seen_at = CASE WHEN ? < first_seen_at THEN ? ELSE first_seen_at END,
        applied_at = COALESCE(?, applied_at),
        viewed_at = COALESCE(?, viewed_at),
+       later_at = COALESCE(?, later_at),
        notes = COALESCE(notes, ?),
        status = CASE WHEN ? = 1 THEN ? ELSE status END,
        score = COALESCE(score, ?),
@@ -275,6 +277,7 @@ function inheritUpdate(env: Bindings, inherit: TwinRow, id: string): D1PreparedS
     inherit.first_seen_at,
     inherit.applied_at,
     inherit.viewed_at,
+    inherit.later_at,
     inherit.notes,
     USER_STATUS.has(inherit.status) ? 1 : 0,
     inherit.status,
@@ -907,7 +910,8 @@ export async function createManualJob(env: Bindings, input: ManualJobInput) {
     `SELECT j.id, j.source_id, j.company, j.company_key, j.title, j.location, j.url,
             j.posted_at, j.first_seen_at, j.last_seen_at, j.changed_at,
             j.salary_min, j.salary_max, j.salary_currency,
-            j.score, j.score_reason, j.flags, j.status, j.applied_at, j.viewed_at, j.notes, j.description,
+            j.score, j.score_reason, j.flags, j.status, j.applied_at, j.viewed_at, j.later_at,
+            j.notes, j.description,
             s.tier, s.label as source_label
      FROM jobs j JOIN sources s ON s.id = j.source_id
      WHERE j.id = ?`,

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType }
 
 import { api, forgetToken, getToken, UnauthorizedError, type JobFilters } from "./api"
 import { AppProvider, type ToastKind } from "./app-context"
-import { BriefcaseIcon, CheckIcon, CompassIcon, PersonIcon, RadarIcon, StackIcon } from "./components/icons"
+import { BriefcaseIcon, ChartIcon, CheckIcon, CompassIcon, PersonIcon, RadarIcon, StackIcon } from "./components/icons"
 import { RunProgress, type RunState } from "./components/RunProgress"
 import { Applied } from "./screens/Applied"
 import { Discovery } from "./screens/Discovery"
@@ -10,16 +10,18 @@ import { Explore } from "./screens/Explore"
 import { Jobs } from "./screens/Jobs"
 import { Profile } from "./screens/Profile"
 import { Sources } from "./screens/Sources"
+import { Stats } from "./screens/Stats"
 import { TokenGate } from "./screens/TokenGate"
 import type { Cycle } from "./types"
 
-type TabId = "discovery" | "explore" | "jobs" | "applied" | "sources" | "profile"
+type TabId = "discovery" | "explore" | "jobs" | "applied" | "stats" | "sources" | "profile"
 
 const TABS: Array<{ id: TabId; label: string; icon: ComponentType<{ className?: string }> }> = [
   { id: "discovery", label: "Discovery", icon: RadarIcon },
   { id: "explore", label: "Исследовать", icon: CompassIcon },
   { id: "jobs", label: "Вакансии", icon: BriefcaseIcon },
   { id: "applied", label: "Подался", icon: CheckIcon },
+  { id: "stats", label: "Статистика", icon: ChartIcon },
   { id: "sources", label: "Источники", icon: StackIcon },
   { id: "profile", label: "Профиль", icon: PersonIcon },
 ]
@@ -230,6 +232,7 @@ export default function App() {
           {tab === "explore" ? <Explore onOpenJobs={openCompanyJobs} /> : null}
           {tab === "jobs" ? <Jobs key={preset?.seq ?? "all"} preset={preset?.filters} /> : null}
           {tab === "applied" ? <Applied /> : null}
+          {tab === "stats" ? <Stats /> : null}
           {tab === "sources" ? <Sources onOpenJobs={openSourceJobs} /> : null}
           {tab === "profile" ? <Profile /> : null}
         </main>

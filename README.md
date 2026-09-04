@@ -48,7 +48,7 @@ Cloudflare оборвал вместе с `waitUntil`, если ничего н�
 React + Vite в `admin/`, сборка в `admin/dist`, раздаётся через assets binding. Статика отвечает
 первой только на существующие файлы, поэтому `/api/*` уходит в воркер.
 
-Экраны: Discovery (главный — новые компании из query-источников), Вакансии, Источники, Профиль.
+Экраны: Discovery (главный — новые компании из query-источников), Вакансии, Подался, Статистика, Источники, Профиль.
 Вход по `ADMIN_TOKEN`, который хранится в `sessionStorage` вкладки.
 
 Выставленные фильтры и сортировка переживают перезагрузку — они лежат в `localStorage` под ключами
@@ -86,11 +86,12 @@ deploy command `npx wrangler deploy`. Отдельно катить руками
 | GET | `/api/discovered?state=new` | новые компании |
 | POST | `/api/discovered/:key/add` | в watchlist |
 | POST | `/api/discovered/:key/dismiss` | скрыть |
-| GET | `/api/jobs` | `?status=&min_score=&tier=&companies=&added_days=&added_from=&viewed=&sort=&dir=`; `status=any` — включая отсеянные |
+| GET | `/api/jobs` | `?status=&min_score=&tier=&companies=&added_days=&added_from=&viewed=&later=&applied=&sort=&dir=`; `status=any` — включая отсеянные |
 | GET | `/api/jobs/companies` | компании с их числом вакансий под те же фильтры |
-| PATCH | `/api/jobs/:id` | `{status}`, `{notes}` или `{viewed}` |
+| PATCH | `/api/jobs/:id` | `{status}`, `{notes}`, `{viewed}` или `{later}` |
 | GET | `/api/applied` | отклики; `?status=applied\|interview\|rejected` |
 | POST | `/api/applied` | вакансия, добавленная руками, без ATS |
+| GET | `/api/stats` | воронка найдено/просмотрено/подался, разбивка откликов, ряды по неделям и месяцам |
 | GET/PUT | `/api/profile` | текст для скоринга, keep/drop-теги и чёрный список компаний |
 | POST | `/api/profile/rescore` | обнулить score и пересчитать |
 | GET | `/api/runs` | последние 50 прогонов |

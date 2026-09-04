@@ -58,6 +58,18 @@ export function CheckIcon({ className }: IconProps) {
   )
 }
 
+export function ChartIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M4 19V5" />
+      <path d="M4 19h16" />
+      <rect x="7" y="11" width="3" height="8" rx="0.8" fill="currentColor" stroke="none" />
+      <rect x="12" y="7" width="3" height="12" rx="0.8" fill="currentColor" stroke="none" />
+      <rect x="17" y="13" width="3" height="6" rx="0.8" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
 export function PersonIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className}>
