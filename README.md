@@ -60,7 +60,14 @@ npm run build       # собрать админку
 npm run admin:dev   # Vite на 5173 с проксированием /api на 43142
 ```
 
-В Workers Builds: build command `npm run build`, deploy command `npx wrangler deploy`.
+## Деплой
+
+Пуш в `main` деплоит сам: к репозиторию подключён Workers Builds с build command `npm run build` и
+deploy command `npx wrangler deploy`. Отдельно катить руками не нужно.
+
+`npm run deploy` остаётся на случай, когда выложить надо в обход гита. Учтите, что он начинается с
+`npm --prefix admin ci`, то есть сносит и ставит заново `admin/node_modules`, — локально это лишние
+минуты, а однажды он на этом шаге и вовсе завис, уже сделав всю работу.
 
 ## API
 
