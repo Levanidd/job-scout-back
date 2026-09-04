@@ -2,27 +2,23 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType }
 
 import { api, forgetToken, getToken, UnauthorizedError, type JobFilters } from "./api"
 import { AppProvider, type ToastKind } from "./app-context"
-import { BriefcaseIcon, ChartIcon, CheckIcon, CompassIcon, PersonIcon, RadarIcon, StackIcon } from "./components/icons"
+import { BriefcaseIcon, ChartIcon, CheckIcon, PersonIcon, StackIcon } from "./components/icons"
 import { RunProgress, type RunState } from "./components/RunProgress"
 import { Applied } from "./screens/Applied"
-import { Discovery } from "./screens/Discovery"
-import { Explore } from "./screens/Explore"
 import { Jobs } from "./screens/Jobs"
 import { Profile } from "./screens/Profile"
-import { Sources } from "./screens/Sources"
+import { Resources } from "./screens/Resources"
 import { Stats } from "./screens/Stats"
 import { TokenGate } from "./screens/TokenGate"
 import type { Cycle } from "./types"
 
-type TabId = "discovery" | "explore" | "jobs" | "applied" | "stats" | "sources" | "profile"
+type TabId = "resources" | "jobs" | "applied" | "stats" | "profile"
 
 const TABS: Array<{ id: TabId; label: string; icon: ComponentType<{ className?: string }> }> = [
-  { id: "discovery", label: "Discovery", icon: RadarIcon },
-  { id: "explore", label: "Исследовать", icon: CompassIcon },
+  { id: "resources", label: "Ресурсы", icon: StackIcon },
   { id: "jobs", label: "Вакансии", icon: BriefcaseIcon },
   { id: "applied", label: "Подался", icon: CheckIcon },
   { id: "stats", label: "Статистика", icon: ChartIcon },
-  { id: "sources", label: "Источники", icon: StackIcon },
   { id: "profile", label: "Профиль", icon: PersonIcon },
 ]
 
@@ -52,7 +48,7 @@ function doneMessage(cycle: Cycle): string {
 
 export default function App() {
   const [authorized, setAuthorized] = useState(() => Boolean(getToken()))
-  const [tab, setTab] = useState<TabId>("discovery")
+  const [tab, setTab] = useState<TabId>("resources")
   // Opening a company from Discovery remounts the job list with its own
   // filters; picking the tab by hand always starts from the default view.
   const [preset, setPreset] = useState<{ filters: JobFilters; seq: number } | null>(null)
@@ -228,12 +224,12 @@ export default function App() {
 
         <main className="content">
           {run ? <RunProgress state={run} /> : null}
-          {tab === "discovery" ? <Discovery onOpenJobs={openCompanyJobs} /> : null}
-          {tab === "explore" ? <Explore onOpenJobs={openCompanyJobs} /> : null}
+          {tab === "resources" ? (
+            <Resources onOpenCompanyJobs={openCompanyJobs} onOpenSourceJobs={openSourceJobs} />
+          ) : null}
           {tab === "jobs" ? <Jobs key={preset?.seq ?? "all"} preset={preset?.filters} /> : null}
           {tab === "applied" ? <Applied /> : null}
           {tab === "stats" ? <Stats /> : null}
-          {tab === "sources" ? <Sources onOpenJobs={openSourceJobs} /> : null}
           {tab === "profile" ? <Profile /> : null}
         </main>
 
