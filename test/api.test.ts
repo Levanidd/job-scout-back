@@ -388,7 +388,7 @@ describe("users", () => {
     })
     expect(created.status).toBe(201)
     expect(created.body.user).toMatchObject({ name: "Лена", role: "user" })
-    const token = created.body.token as string
+    const token = created.body.user.token as string
     expect(token).toBeTruthy()
 
     const id = await seedJob()
@@ -418,7 +418,7 @@ describe("users", () => {
     })
     const listed = await call("/api/sources")
     const sourceId = listed.body.sources[0].id
-    const token = created.body.token as string
+    const token = created.body.user.token as string
 
     expect(
       (await call(`/api/sources/${sourceId}`, { method: "DELETE", token })).status,
@@ -428,6 +428,39 @@ describe("users", () => {
     ).toBe(403)
     expect((await call("/api/users", { token })).status).toBe(403)
     expect((await call("/api/sources")).body.sources).toHaveLength(1)
+  })
+
+  it("keeps issued tokens visible to the master", async () => {
+    const created = await call("/api/users", {
+      method: "POST",
+      body: JSON.stringify({ name: "Лена" }),
+    })
+    const token = created.body.user.token as string
+
+    const listed = await call("/api/users")
+    expect(listed.body.users).toMatchObject([
+      // The bootstrap master logs in with ADMIN_TOKEN, so there is nothing to show.
+      { id: 1, role: "master", token: null },
+      { name: "Лена", token },
+    ])
+  })
+
+  it("reissues a token and retires the old one", async () => {
+    const created = await call("/api/users", {
+      method: "POST",
+      body: JSON.stringify({ name: "Лена" }),
+    })
+    const id = created.body.user.id as number
+    const old = created.body.user.token as string
+
+    expect((await call(`/api/users/${id}/token`, { method: "POST", token: old })).status).toBe(403)
+
+    const reissued = await call(`/api/users/${id}/token`, { method: "POST" })
+    const fresh = reissued.body.user.token as string
+    expect(fresh).not.toBe(old)
+
+    expect((await call("/api/me", { token: old })).status).toBe(401)
+    expect((await call("/api/me", { token: fresh })).body).toMatchObject({ id, name: "Лена" })
   })
 
   it("refuses to demote the last master", async () => {

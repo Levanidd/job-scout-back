@@ -17,6 +17,7 @@ import type {
   ThinkingLevel,
   Tier,
   AuthUser,
+  ManagedUser,
 } from "./types"
 
 const STORAGE_KEY = "jobradar.token"
@@ -137,16 +138,20 @@ export const api = {
     return request("/me")
   },
 
-  users(): Promise<{ users: AuthUser[] }> {
+  users(): Promise<{ users: ManagedUser[] }> {
     return request("/users")
   },
 
-  createUser(name: string): Promise<{ user: AuthUser; token: string }> {
+  createUser(name: string): Promise<{ user: ManagedUser }> {
     return request("/users", { method: "POST", body: JSON.stringify({ name }) })
   },
 
-  updateUser(id: number, body: { name?: string; role?: AuthUser["role"] }): Promise<{ user: AuthUser }> {
+  updateUser(id: number, body: { name?: string; role?: AuthUser["role"] }): Promise<{ user: ManagedUser }> {
     return request(`/users/${id}`, { method: "PATCH", body: JSON.stringify(body) })
+  },
+
+  resetUserToken(id: number): Promise<{ user: ManagedUser }> {
+    return post(`/users/${id}/token`)
   },
 
   userProfile(id: number): Promise<{

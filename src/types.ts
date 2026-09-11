@@ -10,6 +10,9 @@ export type AuthUser = {
   role: UserRole
 }
 
+/** Master-only view: `token` is null for the master bootstrapped from ADMIN_TOKEN. */
+export type ManagedUser = AuthUser & { token: string | null }
+
 export type AppEnv = {
   Bindings: Bindings
   Variables: { user: AuthUser }

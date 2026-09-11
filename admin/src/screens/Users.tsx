@@ -1,17 +1,48 @@
 import { useCallback, useState } from "react"
 
 import { api } from "../api"
-import { useAction, useLoader } from "../app-context"
-import { Empty, Field, Skeletons } from "../components/common"
-import type { AuthUser } from "../types"
+import { useAction, useApp, useLoader } from "../app-context"
+import { Empty, Skeletons } from "../components/common"
+import type { AuthUser, ManagedUser } from "../types"
 import { Profile } from "./Profile"
+
+function Token({
+  token,
+  shown,
+  onShow,
+  onCopy,
+}: {
+  token: string | null
+  shown: boolean
+  onShow: () => void
+  onCopy: (token: string) => void
+}) {
+  if (token === null) return <span className="cell-sub">вход по ADMIN_TOKEN</span>
+  return (
+    <div className="row-tight">
+      <code className={`token-value${shown ? "" : " token-masked"}`}>
+        {shown ? token : "•".repeat(token.length)}
+      </code>
+      {shown ? (
+        <button className="btn btn-ghost btn-sm" onClick={() => onCopy(token)}>
+          Копировать
+        </button>
+      ) : (
+        <button className="btn btn-ghost btn-sm" onClick={onShow}>
+          Показать
+        </button>
+      )}
+    </div>
+  )
+}
 
 export function Users() {
   const run = useAction()
-  const [users, setUsers] = useState<AuthUser[] | null>(null)
+  const { me, notify } = useApp()
+  const [users, setUsers] = useState<ManagedUser[] | null>(null)
   const [name, setName] = useState("")
   const [busy, setBusy] = useState(false)
-  const [issued, setIssued] = useState<{ name: string; token: string } | null>(null)
+  const [shown, setShown] = useState<number[]>([])
   const [subject, setSubject] = useState<AuthUser | null>(null)
 
   const load = useCallback(async () => {
@@ -21,6 +52,10 @@ export function Users() {
 
   useLoader(load)
 
+  function replace(user: ManagedUser) {
+    setUsers((prev) => prev?.map((item) => (item.id === user.id ? user : item)) ?? null)
+  }
+
   async function create() {
     const trimmed = name.trim()
     if (!trimmed) return
@@ -29,17 +64,37 @@ export function Users() {
     setBusy(false)
     if (!result) return
     setName("")
-    setIssued({ name: result.user.name, token: result.token })
+    setShown((prev) => [...prev, result.user.id])
     setUsers((prev) => (prev ? [...prev, result.user] : [result.user]))
   }
 
-  async function toggleRole(user: AuthUser) {
+  async function toggleRole(user: ManagedUser) {
     const next = user.role === "master" ? "user" : "master"
     const label = next === "master" ? `Сделать «${user.name}» мастером?` : `Снять мастера с «${user.name}»?`
     if (!confirm(label)) return
     const result = await run(() => api.updateUser(user.id, { role: next }))
+    if (result) replace(result.user)
+  }
+
+  async function resetToken(user: ManagedUser) {
+    const warning =
+      user.id === me?.id
+        ? "Это ваш собственный токен — текущая сессия закроется, входить придётся уже новым."
+        : "Старый токен перестанет работать."
+    if (!confirm(`Перевыпустить токен для «${user.name}»? ${warning}`)) return
+    const result = await run(() => api.resetUserToken(user.id), "Новый токен выдан")
     if (!result) return
-    setUsers((prev) => prev?.map((item) => (item.id === user.id ? result.user : item)) ?? null)
+    setShown((prev) => (prev.includes(user.id) ? prev : [...prev, user.id]))
+    replace(result.user)
+  }
+
+  async function copy(token: string) {
+    try {
+      await navigator.clipboard.writeText(token)
+      notify("Токен скопирован", "ok")
+    } catch {
+      notify("Буфер обмена недоступен, скопируйте вручную", "error")
+    }
   }
 
   if (subject) {
@@ -60,7 +115,8 @@ export function Users() {
       <section className="card">
         <h3 className="card-title">Новый пользователь</h3>
         <p className="card-sub">
-          Имя и личный токен. Токен показывается один раз — его нужно передать человеку.
+          Имя и личный токен. Токен остаётся в списке — его можно посмотреть и передать человеку в любой
+          момент.
         </p>
         <div className="row">
           <input
@@ -77,11 +133,6 @@ export function Users() {
             Создать
           </button>
         </div>
-        {issued ? (
-          <Field label={`Токен для ${issued.name}`}>
-            <input className="input mono" readOnly value={issued.token} onFocus={(event) => event.currentTarget.select()} />
-          </Field>
-        ) : null}
       </section>
 
       {users === null ? (
@@ -95,6 +146,7 @@ export function Users() {
               <tr>
                 <th>Имя</th>
                 <th>Роль</th>
+                <th>Токен</th>
                 <th className="col-actions" />
               </tr>
             </thead>
@@ -107,6 +159,14 @@ export function Users() {
                       {user.role === "master" ? "мастер" : "пользователь"}
                     </span>
                   </td>
+                  <td>
+                    <Token
+                      token={user.token}
+                      shown={shown.includes(user.id)}
+                      onShow={() => setShown((prev) => [...prev, user.id])}
+                      onCopy={copy}
+                    />
+                  </td>
                   <td className="col-actions">
                     <div className="row-tight">
                       <button className="btn btn-sm" onClick={() => setSubject(user)}>
@@ -114,6 +174,9 @@ export function Users() {
                       </button>
                       <button className="btn btn-sm" onClick={() => void toggleRole(user)}>
                         {user.role === "master" ? "Сделать пользователем" : "Сделать мастером"}
+                      </button>
+                      <button className="btn btn-sm" onClick={() => void resetToken(user)}>
+                        {user.token === null ? "Выдать токен" : "Перевыпустить"}
                       </button>
                     </div>
                   </td>

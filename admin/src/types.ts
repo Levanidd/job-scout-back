@@ -4,6 +4,9 @@ export type AuthUser = {
   role: "master" | "user"
 }
 
+/** Master-only view: `token` is null for a master who still logs in with ADMIN_TOKEN. */
+export type ManagedUser = AuthUser & { token: string | null }
+
 export type Tier = "watchlist" | "discovery"
 
 export type JobStatus =

@@ -8,6 +8,7 @@ import {
   getUser,
   listUsers,
   loadUserProfile,
+  resetUserToken,
   setUserName,
   setUserRole,
 } from "../users"
@@ -58,6 +59,14 @@ users.patch("/api/users/:id", async (c) => {
     user = promoted.user
   }
   return c.json({ user })
+})
+
+users.post("/api/users/:id/token", async (c) => {
+  const denied = masterGuard(c)
+  if (denied) return denied
+  const result = await resetUserToken(c.env, Number(c.req.param("id")))
+  if (!result) return c.json({ error: "not found" }, 404)
+  return c.json(result)
 })
 
 users.get("/api/users/:id/profile", async (c) => {

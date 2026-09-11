@@ -6,9 +6,9 @@ import {
   sanitizeCompanyBlacklist,
   type BlacklistedCompany,
 } from "./settings"
-import type { AuthUser, Bindings, UserRole } from "./types"
+import type { AuthUser, Bindings, ManagedUser, UserRole } from "./types"
 
-export type { AuthUser, UserRole }
+export type { AuthUser, ManagedUser, UserRole }
 
 export type UserProfileView = {
   content: string
@@ -110,26 +110,28 @@ export async function resolveAuth(env: Bindings, token: string): Promise<AuthUse
   }
 }
 
-export async function listUsers(env: Bindings): Promise<AuthUser[]> {
-  const rows = await env.DB.prepare(`SELECT id, name, role FROM users ORDER BY id`).all<AuthUser>()
-  return rows.results
+export async function listUsers(env: Bindings): Promise<ManagedUser[]> {
+  const rows = await env.DB.prepare(`SELECT id, name, role, token FROM users ORDER BY id`).all<ManagedUser>()
+  return rows.results.map((row) => ({ ...row, token: row.token || null }))
 }
 
-export async function getUser(env: Bindings, id: number): Promise<AuthUser | null> {
-  const row = await env.DB.prepare(`SELECT id, name, role FROM users WHERE id = ?`).bind(id).first<AuthUser>()
-  return row ?? null
+export async function getUser(env: Bindings, id: number): Promise<ManagedUser | null> {
+  const row = await env.DB.prepare(`SELECT id, name, role, token FROM users WHERE id = ?`)
+    .bind(id)
+    .first<ManagedUser>()
+  return row ? { ...row, token: row.token || null } : null
 }
 
 export async function createUser(
   env: Bindings,
   name: string,
-): Promise<{ user: AuthUser; token: string } | { error: string }> {
+): Promise<{ user: ManagedUser } | { error: string }> {
   const clean = sanitizeUserName(name)
   if (!clean) return { error: "Нужно имя, до 40 символов" }
   const token = randomToken()
   try {
-    const inserted = await env.DB.prepare(`INSERT INTO users (name, role, token_hash) VALUES (?, 'user', ?)`)
-      .bind(clean, await hashToken(token))
+    const inserted = await env.DB.prepare(`INSERT INTO users (name, role, token_hash, token) VALUES (?, 'user', ?, ?)`)
+      .bind(clean, await hashToken(token), token)
       .run()
     const id = Number(inserted.meta.last_row_id)
     await env.DB.prepare(
@@ -138,7 +140,7 @@ export async function createUser(
     )
       .bind(id, JSON.stringify(DEFAULT_PREFILTER.keep), JSON.stringify(DEFAULT_PREFILTER.drop))
       .run()
-    return { user: { id, name: clean, role: "user" }, token }
+    return { user: { id, name: clean, role: "user", token } }
   } catch {
     return { error: "Не удалось создать пользователя" }
   }
@@ -148,7 +150,7 @@ export async function setUserName(
   env: Bindings,
   id: number,
   name: string,
-): Promise<{ user: AuthUser } | { error: string; status: 400 | 404 }> {
+): Promise<{ user: ManagedUser } | { error: string; status: 400 | 404 }> {
   const clean = sanitizeUserName(name)
   if (!clean) return { error: "Нужно имя, до 40 символов", status: 400 }
   const user = await getUser(env, id)
@@ -161,7 +163,7 @@ export async function setUserRole(
   env: Bindings,
   id: number,
   role: UserRole,
-): Promise<{ user: AuthUser } | { error: string; status: 400 | 404 }> {
+): Promise<{ user: ManagedUser } | { error: string; status: 400 | 404 }> {
   const user = await getUser(env, id)
   if (!user) return { error: "not found", status: 404 }
   if (user.role === "master" && role === "user") {
@@ -170,6 +172,20 @@ export async function setUserRole(
   }
   await env.DB.prepare(`UPDATE users SET role = ? WHERE id = ?`).bind(role, id).run()
   return { user: { ...user, role } }
+}
+
+/**
+ * Issues a fresh token, invalidating the old one. For a master who still logs
+ * in with ADMIN_TOKEN this replaces that login with a stored token.
+ */
+export async function resetUserToken(env: Bindings, id: number): Promise<{ user: ManagedUser } | null> {
+  const user = await getUser(env, id)
+  if (!user) return null
+  const token = randomToken()
+  await env.DB.prepare(`UPDATE users SET token_hash = ?, token = ? WHERE id = ?`)
+    .bind(await hashToken(token), token, id)
+    .run()
+  return { user: { ...user, token } }
 }
 
 function parseJson(raw: string): unknown {
