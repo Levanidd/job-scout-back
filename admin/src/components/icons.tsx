@@ -78,3 +78,25 @@ export function PersonIcon({ className }: IconProps) {
     </svg>
   )
 }
+
+export function PeopleIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <circle cx="9" cy="8" r="3" />
+      <path d="M3.5 19a5.5 5.5 0 0 1 11 0" />
+      <circle cx="16.5" cy="8.5" r="2.5" />
+      <path d="M13.2 19a5 5 0 0 1 8.3-3.2" />
+    </svg>
+  )
+}
+
+export function BookIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M4.5 5.5A2.5 2.5 0 0 1 7 3h12.5v16H7a2.5 2.5 0 0 0-2.5 2.5V5.5Z" />
+      <path d="M7 3v16" />
+      <path d="M10.5 7.5h6" />
+      <path d="M10.5 11h6" />
+    </svg>
+  )
+}

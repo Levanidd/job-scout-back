@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest"
 
 import { prefilterAndScore, upsertJobs } from "../src/ingest"
-import { SETTING_COMPANY_BLACKLIST, writeSetting } from "../src/settings"
 import type { RawJob, SourceRow } from "../src/types"
-import { one, rows, testEnv, type TestEnv } from "./helpers/d1"
+import { TEST_USER_ID, one, rows, testEnv, type TestEnv } from "./helpers/d1"
 
 let env: TestEnv
 
@@ -69,15 +68,13 @@ describe("upsertJobs", () => {
     expect(await one(env, `SELECT company_key FROM jobs`)).toMatchObject({ company_key: "acme" })
   })
 
-  it("skips blacklisted companies", async () => {
+  it("still ingests companies that a person has blacklisted", async () => {
     const source = await addSource()
-    await writeSetting(
-      env,
-      SETTING_COMPANY_BLACKLIST,
-      JSON.stringify([{ company_key: "acme", company: "Acme" }]),
-    )
-    expect(await upsertJobs(env, source, [job()], new Set())).toBe(0)
-    expect(await rows(env, `SELECT id FROM jobs`)).toHaveLength(0)
+    await env.DB.prepare(`UPDATE user_profiles SET blacklist = ? WHERE user_id = ?`)
+      .bind(JSON.stringify([{ company_key: "acme", company: "Acme" }]), TEST_USER_ID)
+      .run()
+    expect(await upsertJobs(env, source, [job()], new Set())).toBe(1)
+    expect(await rows(env, `SELECT id FROM jobs`)).toHaveLength(1)
   })
 
   it("touches changed_at only when a visible field moves", async () => {
@@ -129,13 +126,11 @@ describe("upsertJobs", () => {
     expect(await rows(env, `SELECT url FROM jobs`)).toEqual([{ url: "https://acme.example/jobs/1" }])
   })
 
-  it("writes the rest of the slice around a blacklisted company", async () => {
+  it("writes the rest of the slice even when one company is on a personal blacklist", async () => {
     const source = await addSource({ kind: "query", provider: "arbeitnow", token: "product" })
-    await writeSetting(
-      env,
-      SETTING_COMPANY_BLACKLIST,
-      JSON.stringify([{ company_key: "acme", company: "Acme" }]),
-    )
+    await env.DB.prepare(`UPDATE user_profiles SET blacklist = ? WHERE user_id = ?`)
+      .bind(JSON.stringify([{ company_key: "acme", company: "Acme" }]), TEST_USER_ID)
+      .run()
     const written = await upsertJobs(
       env,
       source,
@@ -145,9 +140,9 @@ describe("upsertJobs", () => {
       ],
       new Set(),
     )
-    expect(written).toBe(1)
-    expect(await rows(env, `SELECT company_key FROM jobs`)).toEqual([{ company_key: "beispiel bank" }])
-    expect(await rows(env, `SELECT company_key FROM discovered_companies`)).toEqual([
+    expect(written).toBe(2)
+    expect(await rows(env, `SELECT company_key FROM jobs ORDER BY company_key`)).toEqual([
+      { company_key: "acme" },
       { company_key: "beispiel bank" },
     ])
   })
@@ -168,18 +163,25 @@ describe("upsertJobs", () => {
   it("replaces an aggregator twin and inherits what the user did to it", async () => {
     const query = await addSource({ kind: "query", provider: "arbeitnow", token: "product" })
     await upsertJobs(env, query, [job({ externalId: "9", url: "https://aggregator.example/9" })], new Set())
+    const twin = await one<{ id: string }>(env, `SELECT id FROM jobs`)
     await env.DB.prepare(
-      `UPDATE jobs SET status = 'applied', applied_at = '2026-01-02 10:00:00',
-         viewed_at = '2026-01-01 10:00:00', later_at = '2026-01-03 10:00:00',
-         notes = 'sent CV', score = 88, first_seen_at = '2025-12-01 00:00:00'`,
-    ).run()
+      `INSERT INTO user_jobs (
+         user_id, job_id, status, applied_at, viewed_at, later_at, notes, score
+       ) VALUES (?, ?, 'applied', '2026-01-02 10:00:00', '2026-01-01 10:00:00',
+                 '2026-01-03 10:00:00', 'sent CV', 88)`,
+    )
+      .bind(TEST_USER_ID, twin!.id)
+      .run()
+    await env.DB.prepare(`UPDATE jobs SET first_seen_at = '2025-12-01 00:00:00'`).run()
 
     const company = await addSource()
     await upsertJobs(env, company, [job()], new Set())
 
     const stored = await rows<Record<string, unknown>>(
       env,
-      `SELECT url, status, applied_at, viewed_at, later_at, notes, score, first_seen_at FROM jobs`,
+      `SELECT j.url, uj.status, uj.applied_at, uj.viewed_at, uj.later_at, uj.notes, uj.score, j.first_seen_at
+       FROM jobs j JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = ?`,
+      TEST_USER_ID,
     )
     expect(stored).toHaveLength(1)
     expect(stored[0]).toMatchObject({
@@ -196,17 +198,19 @@ describe("upsertJobs", () => {
 })
 
 describe("prefilterAndScore", () => {
-  it("parks titles the prefilter rejects and drops their descriptions", async () => {
+  it("parks titles the prefilter rejects without dropping descriptions", async () => {
     const source = await addSource()
     await upsertJobs(env, source, [job({ title: "Backend Engineer" })], new Set())
 
-    const step = await prefilterAndScore(env)
+    const step = await prefilterAndScore(env, TEST_USER_ID)
     expect(step.scored).toBe(0)
-    expect(await one(env, `SELECT status, score, score_reason, description FROM jobs`)).toMatchObject({
+    expect(await one(env, `SELECT status, score, score_reason FROM user_jobs WHERE user_id = ?`, TEST_USER_ID)).toMatchObject({
       status: "off_profile",
       score: 0,
       score_reason: "prefilter",
-      description: null,
+    })
+    expect(await one(env, `SELECT description FROM jobs`)).toMatchObject({
+      description: "Build payments products.",
     })
   })
 
@@ -214,25 +218,29 @@ describe("prefilterAndScore", () => {
     const source = await addSource()
     await upsertJobs(env, source, [job()], new Set())
 
-    const step = await prefilterAndScore(env)
+    const step = await prefilterAndScore(env, TEST_USER_ID)
     expect(step.scored).toBe(1)
     expect(step.remaining).toBe(0)
-    const stored = await one<{ score: number }>(env, `SELECT score FROM jobs`)
+    const stored = await one<{ score: number }>(env, `SELECT score FROM user_jobs WHERE user_id = ?`, TEST_USER_ID)
     expect(stored?.score).toBeGreaterThan(0)
   })
 
   it("reuses a verdict across boards that carry the same opening", async () => {
     const company = await addSource()
     await upsertJobs(env, company, [job()], new Set())
-    await prefilterAndScore(env)
-    const judged = await one<{ score: number }>(env, `SELECT score FROM jobs`)
+    await prefilterAndScore(env, TEST_USER_ID)
+    const judged = await one<{ score: number }>(env, `SELECT score FROM user_jobs WHERE user_id = ?`, TEST_USER_ID)
 
     const other = await addSource({ label: "Acme mirror", provider: "lever", token: "acme" })
     await upsertJobs(env, other, [job({ externalId: "77", url: "https://jobs.lever.co/acme/77" })], new Set())
-    const step = await prefilterAndScore(env)
+    const step = await prefilterAndScore(env, TEST_USER_ID)
 
     expect(step.scored).toBe(0)
-    const scores = await rows<{ score: number }>(env, `SELECT score FROM jobs ORDER BY id`)
+    const scores = await rows<{ score: number }>(
+      env,
+      `SELECT score FROM user_jobs WHERE user_id = ? ORDER BY job_id`,
+      TEST_USER_ID,
+    )
     expect(scores.every((row) => row.score === judged?.score)).toBe(true)
   })
 
@@ -249,32 +257,34 @@ describe("prefilterAndScore", () => {
       new Set(),
     )
 
-    const first = await prefilterAndScore(env, 2)
+    const first = await prefilterAndScore(env, TEST_USER_ID, 2)
     expect(first).toEqual({ scored: 2, remaining: 1, more: true })
-    const second = await prefilterAndScore(env, 2)
+    const second = await prefilterAndScore(env, TEST_USER_ID, 2)
     expect(second).toEqual({ scored: 1, remaining: 0, more: false })
   })
 
   it("marks a cold source as already delivered instead of notifying its backlog", async () => {
     const source = await addSource()
     await upsertJobs(env, source, [job()], new Set())
-    await prefilterAndScore(env)
+    await prefilterAndScore(env, TEST_USER_ID)
 
     expect(await one(env, `SELECT bootstrapped FROM sources`)).toMatchObject({ bootstrapped: 1 })
-    const stored = await one<{ notified_at: string | null }>(env, `SELECT notified_at FROM jobs`)
+    const stored = await one<{ notified_at: string | null }>(
+      env,
+      `SELECT notified_at FROM user_jobs WHERE user_id = ?`,
+      TEST_USER_ID,
+    )
     expect(stored?.notified_at).not.toBeNull()
   })
 
   it("ignores blacklisted companies already sitting in the queue", async () => {
     const source = await addSource()
     await upsertJobs(env, source, [job()], new Set())
-    await writeSetting(
-      env,
-      SETTING_COMPANY_BLACKLIST,
-      JSON.stringify([{ company_key: "acme", company: "Acme" }]),
-    )
+    await env.DB.prepare(`UPDATE user_profiles SET blacklist = ? WHERE user_id = ?`)
+      .bind(JSON.stringify([{ company_key: "acme", company: "Acme" }]), TEST_USER_ID)
+      .run()
 
-    expect(await prefilterAndScore(env)).toEqual({ scored: 0, remaining: 0, more: false })
-    expect(await one(env, `SELECT score FROM jobs`)).toMatchObject({ score: null })
+    expect(await prefilterAndScore(env, TEST_USER_ID)).toEqual({ scored: 0, remaining: 0, more: false })
+    expect(await one(env, `SELECT score FROM user_jobs WHERE user_id = ?`, TEST_USER_ID)).toMatchObject({ score: null })
   })
 })

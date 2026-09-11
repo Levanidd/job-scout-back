@@ -1,3 +1,9 @@
+export type AuthUser = {
+  id: number
+  name: string
+  role: "master" | "user"
+}
+
 export type Tier = "watchlist" | "discovery"
 
 export type JobStatus =

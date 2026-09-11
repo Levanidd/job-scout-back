@@ -1,12 +1,13 @@
 import { Hono } from "hono"
 
 import { adapters } from "../adapters"
+import { currentUser, masterGuard } from "../auth"
 import { detectUrl } from "../detect"
 import { message } from "../errors"
 import { prefilterAndScore, runSource } from "../ingest"
-import type { Bindings, SourceRow } from "../types"
+import type { AppEnv, SourceRow } from "../types"
 
-export const sources = new Hono<{ Bindings: Bindings }>()
+export const sources = new Hono<AppEnv>()
 
 sources.get("/api/sources", async (c) => {
   const rows = await c.env.DB.prepare(
@@ -70,6 +71,8 @@ sources.post("/api/sources", async (c) => {
 })
 
 sources.patch("/api/sources/:id", async (c) => {
+  const denied = masterGuard(c)
+  if (denied) return denied
   const id = Number(c.req.param("id"))
   const body = await c.req.json<{ enabled?: number; tier?: string; label?: string }>()
   const current = await c.env.DB.prepare(`SELECT * FROM sources WHERE id = ?`).bind(id).first<SourceRow>()
@@ -81,6 +84,8 @@ sources.patch("/api/sources/:id", async (c) => {
 })
 
 sources.delete("/api/sources/:id", async (c) => {
+  const denied = masterGuard(c)
+  if (denied) return denied
   await c.env.DB.prepare(`UPDATE sources SET deleted_at = datetime('now'), enabled = 0 WHERE id = ?`)
     .bind(Number(c.req.param("id")))
     .run()
@@ -96,7 +101,7 @@ sources.post("/api/sources/:id/run", async (c) => {
   if (!source) return c.json({ error: "not found" }, 404)
   const run = await runSource(c.env, source)
   if (c.req.query("score") === "0") return c.json({ run, scored: 0 })
-  const { scored } = await prefilterAndScore(c.env)
+  const { scored } = await prefilterAndScore(c.env, currentUser(c).id)
   return c.json({ run, scored })
 })
 

@@ -29,7 +29,7 @@ export function TokenGate({ onAuthorized }: { onAuthorized: () => void }) {
       <form className="gate-card" onSubmit={submit}>
         <h1>JobRadar</h1>
         <p className="gate-hint">
-          Вставьте <code>ADMIN_TOKEN</code>. Он хранится только в этой вкладке и стирается, когда вы её закрываете.
+          Вставьте свой токен. Его выдаёт мастер. Он хранится только в этой вкладке и стирается, когда вы её закрываете.
         </p>
         <input
           className="input"
@@ -37,7 +37,7 @@ export function TokenGate({ onAuthorized }: { onAuthorized: () => void }) {
           value={value}
           autoFocus
           autoComplete="off"
-          placeholder="ADMIN_TOKEN"
+          placeholder="токен"
           onChange={(event) => setValue(event.target.value)}
         />
         {error ? <div className="error-text">{error}</div> : null}

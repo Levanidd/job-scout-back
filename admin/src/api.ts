@@ -16,6 +16,7 @@ import type {
   JobStats,
   ThinkingLevel,
   Tier,
+  AuthUser,
 } from "./types"
 
 const STORAGE_KEY = "jobradar.token"
@@ -128,8 +129,50 @@ function patchJob(
 }
 
 export const api = {
-  async verify(): Promise<void> {
-    await request("/profile")
+  async verify(): Promise<AuthUser> {
+    return request("/me")
+  },
+
+  me(): Promise<AuthUser> {
+    return request("/me")
+  },
+
+  users(): Promise<{ users: AuthUser[] }> {
+    return request("/users")
+  },
+
+  createUser(name: string): Promise<{ user: AuthUser; token: string }> {
+    return request("/users", { method: "POST", body: JSON.stringify({ name }) })
+  },
+
+  updateUser(id: number, body: { name?: string; role?: AuthUser["role"] }): Promise<{ user: AuthUser }> {
+    return request(`/users/${id}`, { method: "PATCH", body: JSON.stringify(body) })
+  },
+
+  userProfile(id: number): Promise<{
+    user: AuthUser
+    content: string
+    prefilter?: PrefilterRules
+    blacklist?: BlacklistedCompany[]
+    companies?: BlacklistedCompany[]
+  }> {
+    return request(`/users/${id}/profile`)
+  },
+
+  saveUserProfile(
+    id: number,
+    body: { content?: string; prefilter?: PrefilterRules; blacklist?: BlacklistedCompany[] },
+  ): Promise<{
+    ok: true
+    prefilter?: PrefilterRules
+    applied?: { dropped: number; restored: number }
+    blacklist?: BlacklistedCompany[]
+  }> {
+    return request(`/users/${id}/profile`, { method: "PUT", body: JSON.stringify(body) })
+  },
+
+  rescoreUser(id: number): Promise<{ ok: true; scored: number }> {
+    return post(`/users/${id}/rescore`)
   },
 
   jobs(filters: JobFilters): Promise<{ jobs: Job[] }> {

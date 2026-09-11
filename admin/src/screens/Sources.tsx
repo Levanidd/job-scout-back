@@ -135,7 +135,8 @@ function compare(a: Source, b: Source, sort: SourceSort, dir: "asc" | "desc"): n
 
 export function Sources({ onOpenJobs }: { onOpenJobs: (source: Source) => void }) {
   const run = useAction()
-  const { notify, sourcesTick, runningSourceId } = useApp()
+  const { me, notify, sourcesTick, runningSourceId } = useApp()
+  const master = me?.role === "master"
   const [sources, setSources] = useState<Source[] | null>(null)
   const [url, setUrl] = useState("")
   const [detecting, setDetecting] = useState(false)
@@ -486,7 +487,7 @@ export function Sources({ onOpenJobs }: { onOpenJobs: (source: Source) => void }
                     title={source.last_error ?? undefined}
                   >
                     <td>
-                      {editing === source.id ? (
+                      {master && editing === source.id ? (
                         <input
                           className="input"
                           value={draft}
@@ -498,7 +499,7 @@ export function Sources({ onOpenJobs }: { onOpenJobs: (source: Source) => void }
                             if (event.key === "Escape") setEditing(null)
                           }}
                         />
-                      ) : (
+                      ) : master ? (
                         <button
                           type="button"
                           className="th-sort"
@@ -510,17 +511,23 @@ export function Sources({ onOpenJobs }: { onOpenJobs: (source: Source) => void }
                         >
                           {source.label}
                         </button>
+                      ) : (
+                        <strong>{source.label}</strong>
                       )}
                     </td>
                     <td>
-                      <select
-                        className="select select-inline"
-                        value={source.tier}
-                        onChange={(event) => void changeTier(source, event.target.value as Tier)}
-                      >
-                        <option value="watchlist">watchlist</option>
-                        <option value="discovery">discovery</option>
-                      </select>
+                      {master ? (
+                        <select
+                          className="select select-inline"
+                          value={source.tier}
+                          onChange={(event) => void changeTier(source, event.target.value as Tier)}
+                        >
+                          <option value="watchlist">watchlist</option>
+                          <option value="discovery">discovery</option>
+                        </select>
+                      ) : (
+                        source.tier
+                      )}
                     </td>
                     <td className="col-score">
                       <button
@@ -553,12 +560,16 @@ export function Sources({ onOpenJobs }: { onOpenJobs: (source: Source) => void }
                         <button className="btn btn-sm" onClick={() => void runOne(source)}>
                           Прогнать
                         </button>
-                        <button className="btn btn-sm" onClick={() => void toggle(source)}>
-                          {source.enabled ? "Выкл" : "Вкл"}
-                        </button>
-                        <button className="btn btn-danger btn-sm" onClick={() => void remove(source)}>
-                          Удалить
-                        </button>
+                        {master ? (
+                          <>
+                            <button className="btn btn-sm" onClick={() => void toggle(source)}>
+                              {source.enabled ? "Выкл" : "Вкл"}
+                            </button>
+                            <button className="btn btn-danger btn-sm" onClick={() => void remove(source)}>
+                              Удалить
+                            </button>
+                          </>
+                        ) : null}
                       </div>
                     </td>
                     <td>{source.provider}</td>

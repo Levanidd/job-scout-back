@@ -1,10 +1,12 @@
 import { createContext, useCallback, useContext, useEffect } from "react"
 
 import { UnauthorizedError } from "./api"
+import type { AuthUser } from "./types"
 
 export type ToastKind = "ok" | "error"
 
 type AppContextValue = {
+  me: AuthUser | null
   notify: (message: string, kind?: ToastKind) => void
   logout: () => void
   /** Bump to silently refetch whatever tab is open. */

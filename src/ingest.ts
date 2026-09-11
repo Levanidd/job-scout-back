@@ -2,11 +2,14 @@ import { getAdapter } from "./adapters"
 import { companyKey, dedupKey, jobHash } from "./company-key"
 import { chunk, placeholders, runBatch, selectIn } from "./db"
 import { message } from "./errors"
-import { renderDigest, sendTelegram } from "./notify"
 import { clipDescription, passesPrefilter } from "./prefilter"
 import { toSalary } from "./salary"
 import { scoreInBatches, scoreJobs, type ScoreInput } from "./scoring"
-import { blockedCompanyKeys, excludeBlockedCompanies, resolvePrefilter, resolveScoringConfig } from "./settings"
+import {
+  excludeBlockedCompaniesForUser,
+  resolveScoringConfig,
+  resolveUserPrefilter,
+} from "./settings"
 import { trackCompany, type TrackResult } from "./sources"
 import type { Bindings, RawJob, SourceRow } from "./types"
 
@@ -48,14 +51,6 @@ type TwinRow = {
   id: string
   kind: string
   first_seen_at: string
-  applied_at: string | null
-  viewed_at: string | null
-  later_at: string | null
-  notes: string | null
-  status: string
-  score: number | null
-  score_reason: string | null
-  flags: string | null
 }
 
 export type SourceStep = RunResult & {
@@ -126,9 +121,8 @@ export async function upsertJobs(
   watched: Set<string>,
 ): Promise<number> {
   if (jobs.length === 0) return 0
-  const blocked = await blockedCompanyKeys(env)
 
-  const rows = await Promise.all(
+  const wanted = await Promise.all(
     jobs.map(async (job) => {
       const company = job.company ?? source.label
       return {
@@ -140,8 +134,6 @@ export async function upsertJobs(
       }
     }),
   )
-  const wanted = rows.filter((row) => !(row.key && blocked.has(row.key)))
-  if (wanted.length === 0) return 0
 
   const present = new Set(
     (
@@ -156,8 +148,7 @@ export async function upsertJobs(
   const openings = [...new Set(wanted.filter((row) => !present.has(row.id) && row.opening).map((row) => row.opening!))]
   for (const twin of await selectIn<TwinRow & { dedup_key: string }>(
     env,
-    (list) => `SELECT j.id, j.dedup_key, s.kind, j.first_seen_at, j.applied_at, j.viewed_at, j.later_at,
-                 j.notes, j.status, j.score, j.score_reason, j.flags
+    (list) => `SELECT j.id, j.dedup_key, s.kind, j.first_seen_at
        FROM jobs j JOIN sources s ON s.id = j.source_id
        WHERE j.closed_at IS NULL AND j.dedup_key IN (${list})`,
     openings,
@@ -183,7 +174,6 @@ export async function upsertJobs(
         if (source.kind !== "company" || twin.kind !== "query") continue
         inherit = twin
         twins.delete(opening)
-        writes.push(env.DB.prepare(`DELETE FROM jobs WHERE id = ?`).bind(twin.id))
       }
       claimed.add(opening)
     }
@@ -236,7 +226,11 @@ export async function upsertJobs(
       ),
     )
 
-    if (inherit) writes.push(inheritUpdate(env, inherit, id))
+    if (inherit) {
+      writes.push(inheritFirstSeen(env, inherit.first_seen_at, id))
+      writes.push(inheritUserJobs(env, inherit.id, id))
+      writes.push(env.DB.prepare(`DELETE FROM jobs WHERE id = ?`).bind(inherit.id))
+    }
 
     if (source.kind === "query" && key && !watched.has(key)) {
       writes.push(
@@ -255,37 +249,34 @@ export async function upsertJobs(
   return jobsNew
 }
 
-/** Statuses that came from the user, not from a board, and so outlive the copy that carried them. */
-const USER_STATUS = new Set(["applied", "interview", "rejected", "saved", "ignored"])
-
-/** Moves what the user did to the aggregator's copy onto the employer's own row. */
-function inheritUpdate(env: Bindings, inherit: TwinRow, id: string): D1PreparedStatement {
+function inheritFirstSeen(env: Bindings, firstSeenAt: string, id: string): D1PreparedStatement {
   return env.DB.prepare(
-    `UPDATE jobs SET
-       first_seen_at = CASE WHEN ? < first_seen_at THEN ? ELSE first_seen_at END,
-       applied_at = COALESCE(?, applied_at),
-       viewed_at = COALESCE(?, viewed_at),
-       later_at = COALESCE(?, later_at),
-       notes = COALESCE(notes, ?),
-       status = CASE WHEN ? = 1 THEN ? ELSE status END,
-       score = COALESCE(score, ?),
-       score_reason = COALESCE(score_reason, ?),
-       flags = COALESCE(flags, ?)
-     WHERE id = ?`,
-  ).bind(
-    inherit.first_seen_at,
-    inherit.first_seen_at,
-    inherit.applied_at,
-    inherit.viewed_at,
-    inherit.later_at,
-    inherit.notes,
-    USER_STATUS.has(inherit.status) ? 1 : 0,
-    inherit.status,
-    inherit.score,
-    inherit.score_reason,
-    inherit.flags,
-    id,
-  )
+    `UPDATE jobs SET first_seen_at = CASE WHEN ? < first_seen_at THEN ? ELSE first_seen_at END WHERE id = ?`,
+  ).bind(firstSeenAt, firstSeenAt, id)
+}
+
+/** Copies every person's verdict from the aggregator twin onto the employer's own row. */
+function inheritUserJobs(env: Bindings, fromId: string, toId: string): D1PreparedStatement {
+  return env.DB.prepare(
+    `INSERT INTO user_jobs (
+       user_id, job_id, status, score, score_reason, flags, notes,
+       applied_at, viewed_at, later_at, notified_at
+     )
+     SELECT user_id, ?, status, score, score_reason, flags, notes,
+            applied_at, viewed_at, later_at, notified_at
+     FROM user_jobs WHERE job_id = ?
+     ON CONFLICT(user_id, job_id) DO UPDATE SET
+       applied_at = COALESCE(user_jobs.applied_at, excluded.applied_at),
+       viewed_at = COALESCE(user_jobs.viewed_at, excluded.viewed_at),
+       later_at = COALESCE(user_jobs.later_at, excluded.later_at),
+       notes = COALESCE(user_jobs.notes, excluded.notes),
+       status = CASE WHEN excluded.status IN ('applied', 'interview', 'rejected', 'saved', 'ignored')
+         THEN excluded.status ELSE user_jobs.status END,
+       score = COALESCE(user_jobs.score, excluded.score),
+       score_reason = COALESCE(user_jobs.score_reason, excluded.score_reason),
+       flags = COALESCE(user_jobs.flags, excluded.flags),
+       notified_at = COALESCE(user_jobs.notified_at, excluded.notified_at)`,
+  ).bind(toId, fromId)
 }
 
 /** One slice of a board so waitUntil can finish. Same source continues on the next hop. */
@@ -427,17 +418,54 @@ type Candidate = {
   dedup_key: string | null
 }
 
-const PARK_OFF_PROFILE = `UPDATE jobs
-  SET score = 0, score_reason = 'prefilter', flags = '[]', status = 'off_profile', description = NULL
-  WHERE id IN`
-
-function verdictUpdate(env: Bindings, id: string, verdict: Verdict): D1PreparedStatement {
-  return env.DB.prepare(`UPDATE jobs SET score = ?, score_reason = ?, flags = ? WHERE id = ?`).bind(
-    verdict.score,
-    verdict.score_reason,
-    verdict.flags,
-    id,
+function parkOffProfile(env: Bindings, userId: number, ids: string[]): D1PreparedStatement[] {
+  return chunk(ids, 40).map((part) =>
+    env.DB.prepare(
+      `INSERT INTO user_jobs (user_id, job_id, status, score, score_reason, flags)
+       SELECT ?, id, 'off_profile', 0, 'prefilter', '[]' FROM jobs WHERE id IN (${placeholders(part.length)})
+       ON CONFLICT(user_id, job_id) DO UPDATE SET
+         status = 'off_profile', score = 0, score_reason = 'prefilter', flags = '[]'`,
+    ).bind(userId, ...part),
   )
+}
+
+function verdictUpdate(env: Bindings, userId: number, id: string, verdict: Verdict): D1PreparedStatement {
+  return env.DB.prepare(
+    `INSERT INTO user_jobs (user_id, job_id, status, score, score_reason, flags)
+     VALUES (?, ?, 'new', ?, ?, ?)
+     ON CONFLICT(user_id, job_id) DO UPDATE SET
+       score = excluded.score,
+       score_reason = excluded.score_reason,
+       flags = excluded.flags,
+       status = CASE WHEN user_jobs.status = 'off_profile' THEN 'new' ELSE user_jobs.status END`,
+  ).bind(userId, id, verdict.score, verdict.score_reason, verdict.flags)
+}
+
+async function inheritVerdicts(
+  env: Bindings,
+  userId: number,
+  keys: string[],
+): Promise<Map<string, Verdict>> {
+  const out = new Map<string, Verdict>()
+  for (const part of chunk(keys, 80)) {
+    const rows = await env.DB.prepare(
+      `SELECT j.dedup_key, MAX(uj.score) AS score, uj.score_reason, uj.flags
+       FROM user_jobs uj JOIN jobs j ON j.id = uj.job_id
+       WHERE uj.user_id = ? AND uj.score IS NOT NULL AND j.dedup_key IN (${placeholders(part.length)})
+       GROUP BY j.dedup_key`,
+    )
+      .bind(userId, ...part)
+      .all<Verdict & { dedup_key: string }>()
+    for (const row of rows.results) out.set(row.dedup_key, row)
+  }
+  return out
+}
+
+async function profileContent(env: Bindings, userId: number): Promise<string> {
+  const row = await env.DB.prepare(`SELECT content FROM user_profiles WHERE user_id = ?`)
+    .bind(userId)
+    .first<{ content: string }>()
+  return row?.content ?? ""
 }
 
 /**
@@ -445,52 +473,34 @@ function verdictUpdate(env: Bindings, id: string, verdict: Verdict): D1PreparedS
  * model in one pass, so a caller that wants to report progress can walk the
  * queue in steps instead of waiting out one opaque request.
  */
-export async function prefilterAndScore(env: Bindings, limit?: number): Promise<ScorePass> {
-  const blocked = await excludeBlockedCompanies(env, "company_key")
+export async function prefilterAndScore(env: Bindings, userId: number, limit?: number): Promise<ScorePass> {
+  const blocked = await excludeBlockedCompaniesForUser(env, userId, "j.company_key")
 
-  // Only unscored rows can change here, which is the shape `idx_jobs_unscored` covers.
-  // Re-parking jobs that already carry a score is `reapplyPrefilter`'s job.
   const open = await env.DB.prepare(
-    `SELECT id, company, company_key, title, location, dedup_key
-     FROM jobs
-     WHERE closed_at IS NULL AND score IS NULL
-       AND status NOT IN ('ignored', 'rejected', 'off_profile')
+    `SELECT j.id, j.company, j.company_key, j.title, j.location, j.dedup_key
+     FROM jobs j
+     LEFT JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = ?
+     WHERE j.closed_at IS NULL AND uj.score IS NULL
+       AND COALESCE(uj.status, 'new') NOT IN ('ignored', 'rejected', 'off_profile')
        AND ${blocked.sql}
-     ORDER BY first_seen_at
+     ORDER BY j.first_seen_at
      LIMIT ?`,
   )
-    .bind(...blocked.binds, CANDIDATE_WINDOW)
+    .bind(userId, ...blocked.binds, CANDIDATE_WINDOW)
     .all<Candidate>()
 
-  const rules = await resolvePrefilter(env)
+  const rules = await resolveUserPrefilter(env, userId)
   const candidates: Candidate[] = []
   const dropIds: string[] = []
   for (const job of open.results) {
-    // Kept out of the scoring queue but not out of sight: the title says the
-    // role is not ours, and the description is dropped because nothing reads it.
     if (passesPrefilter(job.title, rules)) candidates.push(job)
     else dropIds.push(job.id)
   }
 
-  await runBatch(
-    env,
-    chunk(dropIds, 40).map((part) =>
-      env.DB.prepare(`${PARK_OFF_PROFILE} (${placeholders(part.length)})`).bind(...part),
-    ),
-  )
+  await runBatch(env, parkOffProfile(env, userId, dropIds))
 
-  // A role we already judged on one board is the same role on the next one, so
-  // its verdict carries over instead of being bought again. Only the openings in
-  // this window are looked up, rather than every scored row in the table.
   const keys = [...new Set(candidates.map((job) => job.dedup_key).filter((key): key is string => Boolean(key)))]
-  const judged = await selectIn<Verdict & { dedup_key: string }>(
-    env,
-    (list) => `SELECT dedup_key, MAX(score) AS score, score_reason, flags FROM jobs
-       WHERE score IS NOT NULL AND dedup_key IN (${list})
-       GROUP BY dedup_key`,
-    keys,
-  )
-  const verdicts = new Map(judged.map((row) => [row.dedup_key, row]))
+  const verdicts = await inheritVerdicts(env, userId, keys)
 
   const toScore: Array<{ id: string; company_key: string; dedup_key: string | null; input: ScoreInput }> = []
   /** Twins of a job that is being scored right now, waiting for its verdict. */
@@ -502,7 +512,7 @@ export async function prefilterAndScore(env: Bindings, limit?: number): Promise<
     if (key) {
       const known = verdicts.get(key)
       if (known) {
-        inherited.push(verdictUpdate(env, job.id, known))
+        inherited.push(verdictUpdate(env, userId, job.id, known))
         continue
       }
       const queued = awaiting.get(key)
@@ -543,10 +553,9 @@ export async function prefilterAndScore(env: Bindings, limit?: number): Promise<
     }
   }
 
-  const profileRow = await env.DB.prepare(`SELECT content FROM profile WHERE id = 1`).first<{ content: string }>()
   const scores = await scoreInBatches(
     batch.map((item) => item.input),
-    profileRow?.content ?? "",
+    await profileContent(env, userId),
     await resolveScoringConfig(env),
   )
 
@@ -554,12 +563,12 @@ export async function prefilterAndScore(env: Bindings, limit?: number): Promise<
   const writes: D1PreparedStatement[] = []
   for (const item of scores) {
     const verdict = { score: item.score, score_reason: item.reason, flags: JSON.stringify(item.flags) }
-    writes.push(verdictUpdate(env, item.external_id, verdict))
+    writes.push(verdictUpdate(env, userId, item.external_id, verdict))
 
     const scored = byId.get(item.external_id)
     if (!scored) continue
     for (const twin of (scored.dedup_key && awaiting.get(scored.dedup_key)) || []) {
-      writes.push(verdictUpdate(env, twin, verdict))
+      writes.push(verdictUpdate(env, userId, twin, verdict))
     }
     if (scored.company_key) {
       writes.push(
@@ -572,14 +581,12 @@ export async function prefilterAndScore(env: Bindings, limit?: number): Promise<
     }
   }
   await runBatch(env, writes)
-  await bootstrapColdSources(env)
+  await bootstrapColdSources(env, userId)
 
   const resolved = dropIds.length + inherited.length + scores.length
   return {
     scored: scores.length,
     remaining,
-    // A batch that scored nothing cannot make progress by trying again, and a
-    // full window only hides more work once this pass has cleared room for it.
     more: (remaining > 0 && scores.length > 0) || (open.results.length === CANDIDATE_WINDOW && resolved > 0),
   }
 }
@@ -589,7 +596,7 @@ export async function prefilterAndScore(env: Bindings, limit?: number): Promise<
  * digest. Mark it as already delivered rather than ignored, so it still shows up
  * in the admin.
  */
-async function bootstrapColdSources(env: Bindings): Promise<void> {
+async function bootstrapColdSources(env: Bindings, userId: number): Promise<void> {
   const cold = await env.DB.prepare(
     `SELECT id FROM sources WHERE bootstrapped = 0 AND deleted_at IS NULL`,
   ).all<{ id: number }>()
@@ -597,9 +604,14 @@ async function bootstrapColdSources(env: Bindings): Promise<void> {
     env,
     cold.results.flatMap((source) => [
       env.DB.prepare(
-        `UPDATE jobs SET notified_at = datetime('now')
-         WHERE source_id = ? AND status = 'new' AND notified_at IS NULL`,
-      ).bind(source.id),
+        `INSERT INTO user_jobs (user_id, job_id, status, notified_at)
+         SELECT ?, j.id, COALESCE(uj.status, 'new'), datetime('now')
+         FROM jobs j
+         LEFT JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = ?
+         WHERE j.source_id = ? AND COALESCE(uj.status, 'new') = 'new' AND uj.notified_at IS NULL
+         ON CONFLICT(user_id, job_id) DO UPDATE SET
+           notified_at = COALESCE(user_jobs.notified_at, excluded.notified_at)`,
+      ).bind(userId, userId, source.id),
       env.DB.prepare(`UPDATE sources SET bootstrapped = 1 WHERE id = ?`).bind(source.id),
     ]),
   )
@@ -611,12 +623,17 @@ async function bootstrapColdSources(env: Bindings): Promise<void> {
  */
 export async function reapplyPrefilter(
   env: Bindings,
+  userId: number,
 ): Promise<{ dropped: number; restored: number }> {
-  const rules = await resolvePrefilter(env)
+  const rules = await resolveUserPrefilter(env, userId)
   const rows = await env.DB.prepare(
-    `SELECT id, title, status FROM jobs
-     WHERE closed_at IS NULL AND status IN ('new', 'notified', 'off_profile')`,
-  ).all<{ id: string; title: string; status: string }>()
+    `SELECT j.id, j.title, COALESCE(uj.status, 'new') AS status
+     FROM jobs j
+     LEFT JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = ?
+     WHERE j.closed_at IS NULL AND COALESCE(uj.status, 'new') IN ('new', 'notified', 'off_profile')`,
+  )
+    .bind(userId)
+    .all<{ id: string; title: string; status: string }>()
 
   const drop: string[] = []
   const restore: string[] = []
@@ -627,14 +644,14 @@ export async function reapplyPrefilter(
   }
 
   await runBatch(env, [
-    ...chunk(drop, 40).map((part) =>
-      env.DB.prepare(`${PARK_OFF_PROFILE} (${placeholders(part.length)})`).bind(...part),
-    ),
+    ...parkOffProfile(env, userId, drop),
     ...chunk(restore, 40).map((part) =>
       env.DB.prepare(
-        `UPDATE jobs SET score = NULL, score_reason = NULL, flags = NULL, status = 'new'
-         WHERE status = 'off_profile' AND id IN (${placeholders(part.length)})`,
-      ).bind(...part),
+        `INSERT INTO user_jobs (user_id, job_id, status, score, score_reason, flags)
+         SELECT ?, id, 'new', NULL, NULL, NULL FROM jobs WHERE id IN (${placeholders(part.length)})
+         ON CONFLICT(user_id, job_id) DO UPDATE SET
+           score = NULL, score_reason = NULL, flags = NULL, status = 'new'`,
+      ).bind(userId, ...part),
     ),
   ])
   return { dropped: drop.length, restored: restore.length }
@@ -652,15 +669,18 @@ export type ScoredJob = {
  * Scores postings regardless of prefilter or an existing verdict.
  * A manual click means "judge these rows", not "queue whatever is still new".
  */
-export async function scoreJobsByIds(env: Bindings, ids: string[]): Promise<ScoredJob[]> {
+export async function scoreJobsByIds(env: Bindings, ids: string[], userId: number): Promise<ScoredJob[]> {
   const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))].slice(0, 10)
   if (unique.length === 0) return []
 
   const rows = await env.DB.prepare(
-    `SELECT id, company, company_key, title, location, description, status, closed_at
-     FROM jobs WHERE id IN (${unique.map(() => "?").join(", ")}) AND closed_at IS NULL`,
+    `SELECT j.id, j.company, j.company_key, j.title, j.location, j.description, j.closed_at,
+            COALESCE(uj.status, 'new') AS status
+     FROM jobs j
+     LEFT JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = ?
+     WHERE j.id IN (${unique.map(() => "?").join(", ")}) AND j.closed_at IS NULL`,
   )
-    .bind(...unique)
+    .bind(userId, ...unique)
     .all<{
       id: string
       company: string
@@ -673,7 +693,6 @@ export async function scoreJobsByIds(env: Bindings, ids: string[]): Promise<Scor
     }>()
   if (rows.results.length === 0) throw new Error("not found")
 
-  const profileRow = await env.DB.prepare(`SELECT content FROM profile WHERE id = 1`).first<{ content: string }>()
   const scores = await scoreJobs(
     rows.results.map((job) => ({
       external_id: job.id,
@@ -682,7 +701,7 @@ export async function scoreJobsByIds(env: Bindings, ids: string[]): Promise<Scor
       location: job.location ?? "",
       description: job.description ?? "",
     })),
-    profileRow?.content ?? "",
+    await profileContent(env, userId),
     await resolveScoringConfig(env),
   )
   const byId = new Map(scores.map((row) => [row.external_id, row]))
@@ -693,8 +712,14 @@ export async function scoreJobsByIds(env: Bindings, ids: string[]): Promise<Scor
     if (!item) continue
     const flags = JSON.stringify(item.flags)
     const status = job.status === "off_profile" ? "new" : job.status
-    await env.DB.prepare(`UPDATE jobs SET score = ?, score_reason = ?, flags = ?, status = ? WHERE id = ?`)
-      .bind(item.score, item.reason || null, flags, status, job.id)
+    await env.DB.prepare(
+      `INSERT INTO user_jobs (user_id, job_id, status, score, score_reason, flags)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(user_id, job_id) DO UPDATE SET
+         score = excluded.score, score_reason = excluded.score_reason, flags = excluded.flags,
+         status = excluded.status`,
+    )
+      .bind(userId, job.id, status, item.score, item.reason || null, flags)
       .run()
 
     if (job.company_key) {
@@ -713,65 +738,14 @@ export async function scoreJobsByIds(env: Bindings, ids: string[]): Promise<Scor
   return out
 }
 
-export async function scoreOneJob(env: Bindings, id: string): Promise<ScoredJob> {
-  const [job] = await scoreJobsByIds(env, [id])
+export async function scoreOneJob(env: Bindings, id: string, userId: number): Promise<ScoredJob> {
+  const [job] = await scoreJobsByIds(env, [id], userId)
   if (!job) throw new Error("not found")
   return job
 }
 
-export async function notifyNew(env: Bindings): Promise<number> {
-  // One line per opening, not per board that carries it. Grouping on the
-  // dedup key keeps the copy from the employer's own board, whose link goes
-  // straight to the posting rather than through an aggregator.
-  const blocked = await excludeBlockedCompanies(env, "j.company_key")
-  const rows = await env.DB.prepare(
-    `SELECT j.company, j.title, j.url, MAX(j.score) AS score, j.score_reason as reason, j.flags, j.id,
-            s.tier, j.dedup_key, MAX(j.salary_min) AS salary_min, MAX(j.salary_max) AS salary_max,
-            MIN(j.salary_currency) AS salary_currency
-     FROM jobs j JOIN sources s ON s.id = j.source_id
-     WHERE j.notified_at IS NULL AND j.closed_at IS NULL AND j.status = 'new' AND j.score IS NOT NULL
-       AND ${blocked.sql}
-       AND (
-         (s.tier = 'watchlist' AND j.score >= 55) OR
-         (s.tier = 'discovery' AND j.score >= 70)
-       )
-     GROUP BY COALESCE(j.dedup_key, j.id)
-     ORDER BY score DESC
-     LIMIT 25`,
-  )
-    .bind(...blocked.binds)
-    .all<{
-      company: string
-      title: string
-      url: string
-      score: number
-      reason: string | null
-      flags: string | null
-      id: string
-      dedup_key: string | null
-      salary_min: number | null
-      salary_max: number | null
-      salary_currency: string | null
-    }>()
-
-  const discovered = await env.DB.prepare(
-    `SELECT COUNT(*) as n FROM discovered_companies WHERE state = 'new' AND first_seen_at >= datetime('now', '-1 day')`,
-  ).first<{ n: number }>()
-
-  if (rows.results.length === 0) return 0
-  const text = renderDigest(rows.results, discovered?.n ?? 0)
-  await sendTelegram(env, text)
-  for (const job of rows.results) {
-    // The twins left out of the digest have to be marked too, or each of them
-    // becomes tomorrow's unsent notification for a job already delivered.
-    await env.DB.prepare(
-      `UPDATE jobs SET notified_at = datetime('now'), status = 'notified'
-       WHERE id = ? OR (? IS NOT NULL AND dedup_key = ? AND notified_at IS NULL)`,
-    )
-      .bind(job.id, job.dedup_key, job.dedup_key)
-      .run()
-  }
-  return rows.results.length
+export async function notifyNew(_env: Bindings): Promise<number> {
+  return 0
 }
 
 export async function pickSources(env: Bindings): Promise<SourceRow[]> {
@@ -838,7 +812,7 @@ async function ensureManualSource(env: Bindings): Promise<number> {
   return created.id
 }
 
-export async function createManualJob(env: Bindings, input: ManualJobInput) {
+export async function createManualJob(env: Bindings, input: ManualJobInput, userId: number) {
   const title = input.title.trim()
   const company = input.company.trim()
   const url = parseJobUrl(input.url)
@@ -863,11 +837,11 @@ export async function createManualJob(env: Bindings, input: ManualJobInput) {
     `INSERT INTO jobs (
        id, source_id, external_id, company, company_key, title, location, url, description,
        posted_at, salary_min, salary_max, salary_currency, dedup_key,
-       first_seen_at, last_seen_at, changed_at, closed_at, status, notes, applied_at
+       first_seen_at, last_seen_at, changed_at, closed_at, status
      ) VALUES (
        ?, ?, ?, ?, ?, ?, ?, ?, ?,
        NULL, ?, ?, ?, ?,
-       datetime('now'), datetime('now'), datetime('now'), NULL, ?, ?, COALESCE(?, datetime('now'))
+       datetime('now'), datetime('now'), datetime('now'), NULL, 'new'
      )
      ON CONFLICT(id) DO UPDATE SET
        title = excluded.title,
@@ -879,9 +853,6 @@ export async function createManualJob(env: Bindings, input: ManualJobInput) {
        salary_max = COALESCE(excluded.salary_max, jobs.salary_max),
        salary_currency = COALESCE(excluded.salary_currency, jobs.salary_currency),
        dedup_key = excluded.dedup_key,
-       notes = COALESCE(excluded.notes, jobs.notes),
-       status = excluded.status,
-       applied_at = COALESCE(jobs.applied_at, excluded.applied_at),
        closed_at = NULL,
        last_seen_at = datetime('now'),
        changed_at = datetime('now')`,
@@ -900,23 +871,33 @@ export async function createManualJob(env: Bindings, input: ManualJobInput) {
       salary?.max ?? null,
       salary?.currency || null,
       opening,
-      status,
-      notes,
-      appliedAt,
     )
+    .run()
+
+  await env.DB.prepare(
+    `INSERT INTO user_jobs (user_id, job_id, status, notes, applied_at)
+     VALUES (?, ?, ?, ?, COALESCE(?, datetime('now')))
+     ON CONFLICT(user_id, job_id) DO UPDATE SET
+       status = excluded.status,
+       notes = COALESCE(excluded.notes, user_jobs.notes),
+       applied_at = COALESCE(user_jobs.applied_at, excluded.applied_at)`,
+  )
+    .bind(userId, id, status, notes, appliedAt)
     .run()
 
   const job = await env.DB.prepare(
     `SELECT j.id, j.source_id, j.company, j.company_key, j.title, j.location, j.url,
             j.posted_at, j.first_seen_at, j.last_seen_at, j.changed_at,
             j.salary_min, j.salary_max, j.salary_currency,
-            j.score, j.score_reason, j.flags, j.status, j.applied_at, j.viewed_at, j.later_at,
-            j.notes, j.description,
+            uj.score, uj.score_reason, uj.flags, COALESCE(uj.status, 'new') AS status,
+            uj.applied_at, uj.viewed_at, uj.later_at, uj.notes, j.description,
             s.tier, s.label as source_label
-     FROM jobs j JOIN sources s ON s.id = j.source_id
+     FROM jobs j
+     JOIN sources s ON s.id = j.source_id
+     LEFT JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = ?
      WHERE j.id = ?`,
   )
-    .bind(id)
+    .bind(userId, id)
     .first()
   if (!job) throw new Error("not found")
   return job

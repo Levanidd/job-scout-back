@@ -57,6 +57,45 @@ export async function resolvePrefilter(env: Bindings): Promise<PrefilterRules> {
   }
 }
 
+export async function resolveUserPrefilter(env: Bindings, userId: number): Promise<PrefilterRules> {
+  const row = await env.DB.prepare(`SELECT prefilter_keep, prefilter_drop FROM user_profiles WHERE user_id = ?`)
+    .bind(userId)
+    .first<{ prefilter_keep: string; prefilter_drop: string }>()
+  if (!row) return { keep: [...DEFAULT_PREFILTER.keep], drop: [...DEFAULT_PREFILTER.drop] }
+  return {
+    keep: parseTagSetting(row.prefilter_keep, DEFAULT_PREFILTER.keep),
+    drop: parseTagSetting(row.prefilter_drop, DEFAULT_PREFILTER.drop),
+  }
+}
+
+export async function resolveUserBlacklist(env: Bindings, userId: number): Promise<BlacklistedCompany[]> {
+  const row = await env.DB.prepare(`SELECT blacklist FROM user_profiles WHERE user_id = ?`)
+    .bind(userId)
+    .first<{ blacklist: string }>()
+  if (!row?.blacklist) return []
+  try {
+    return sanitizeCompanyBlacklist(JSON.parse(row.blacklist) as unknown)
+  } catch {
+    return []
+  }
+}
+
+export async function blockedCompanyKeysForUser(env: Bindings, userId: number): Promise<Set<string>> {
+  return blacklistKeys(await resolveUserBlacklist(env, userId))
+}
+
+export async function excludeBlockedCompaniesForUser(
+  env: Bindings,
+  userId: number,
+  column: string,
+): Promise<{ sql: string; binds: string[] }> {
+  const list = await resolveUserBlacklist(env, userId)
+  return sqlExcludeCompanyKeys(
+    column,
+    list.map((item) => item.company_key),
+  )
+}
+
 export async function writePrefilter(env: Bindings, rules: PrefilterRules): Promise<PrefilterRules> {
   const keep = sanitizeTags(rules.keep)
   const drop = sanitizeTags(rules.drop)

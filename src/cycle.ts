@@ -30,6 +30,7 @@ type CycleRow = {
   chunk_started_at: string | null
   error: string | null
   origin: string | null
+  user_id: number | null
   started_at: string | null
   updated_at: string | null
   finished_at: string | null
@@ -125,7 +126,7 @@ export async function failCycle(env: Bindings, error: unknown): Promise<void> {
  * Starts a cycle, or leaves a live one alone so a second click / a stale poll
  * can re-kick the chain without wiping progress.
  */
-export async function startCycle(env: Bindings, origin?: string): Promise<CycleView> {
+export async function startCycle(env: Bindings, origin?: string, userId?: number): Promise<CycleView> {
   const current = await loadRow(env)
   if (current?.status === "running") {
     if (origin && !current.origin) {
@@ -144,11 +145,11 @@ export async function startCycle(env: Bindings, origin?: string): Promise<CycleV
        current_label = NULL, current_id = NULL,
        found = 0, fresh = 0, failed = 0, scored = 0, notified = 0,
        hops = 0, chunk_offset = 0, chunk_started_at = NULL,
-       error = NULL, origin = ?,
+       error = NULL, origin = ?, user_id = ?,
        started_at = datetime('now'), updated_at = datetime('now'), finished_at = NULL
      WHERE id = 1`,
   )
-    .bind(phase, JSON.stringify(items), items.length, items.length, origin ?? current?.origin ?? null)
+    .bind(phase, JSON.stringify(items), items.length, items.length, origin ?? current?.origin ?? null, userId ?? null)
     .run()
 
   const row = await loadRow(env)
@@ -216,7 +217,15 @@ async function advance(env: Bindings, row: CycleRow): Promise<boolean> {
   }
 
   if (row.phase === "scoring") {
-    const step = await prefilterAndScore(env, SCORE_CHUNK)
+    const userId = row.user_id
+    if (!userId) {
+      await env.DB.prepare(
+        `UPDATE cycles SET phase = 'digest', current_label = NULL, current_id = NULL, updated_at = datetime('now')
+         WHERE id = 1`,
+      ).run()
+      return true
+    }
+    const step = await prefilterAndScore(env, userId, SCORE_CHUNK)
     const scored = row.scored + step.scored
     await env.DB.prepare(
       `UPDATE cycles SET scored = ?, done = ?, total = ?, phase = ?,

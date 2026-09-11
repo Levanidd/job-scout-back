@@ -2,6 +2,19 @@ import type { Salary } from "./salary"
 
 export type { Salary }
 
+export type UserRole = "master" | "user"
+
+export type AuthUser = {
+  id: number
+  name: string
+  role: UserRole
+}
+
+export type AppEnv = {
+  Bindings: Bindings
+  Variables: { user: AuthUser }
+}
+
 export type RawJob = {
   externalId: string
   title: string

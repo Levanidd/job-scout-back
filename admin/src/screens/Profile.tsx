@@ -11,9 +11,9 @@ function sameTags(left: PrefilterRules, right: PrefilterRules): boolean {
   return JSON.stringify(left) === JSON.stringify(right)
 }
 
-export function Profile() {
+export function Profile({ subject }: { subject?: { id: number; name: string } } = {}) {
   const run = useAction()
-  const { notify, refresh } = useApp()
+  const { me, notify, refresh } = useApp()
   const [content, setContent] = useState<string | null>(null)
   const [saved, setSaved] = useState("")
   const [prefilter, setPrefilter] = useState<PrefilterRules>({ keep: [], drop: [] })
@@ -22,9 +22,10 @@ export function Profile() {
   const [companies, setCompanies] = useState<BlacklistedCompany[]>([])
   const [pick, setPick] = useState("")
   const [busy, setBusy] = useState(false)
+  const otherId = subject?.id
 
   const load = useCallback(async () => {
-    const result = await run(() => api.profile())
+    const result = await run(() => (otherId ? api.userProfile(otherId) : api.profile()))
     if (!result) return
     setContent(result.content)
     setSaved(result.content)
@@ -33,21 +34,26 @@ export function Profile() {
     setSavedPrefilter(tags)
     setBlacklist(result.blacklist ?? [])
     setCompanies(result.companies ?? [])
-  }, [run])
+  }, [run, otherId])
 
   useLoader(load)
 
   async function save() {
     if (content === null) return
     setBusy(true)
-    const result = await run(() => api.saveProfile(content), "Профиль сохранён")
+    const result = await run(
+      () => (otherId ? api.saveUserProfile(otherId, { content }) : api.saveProfile(content)),
+      "Профиль сохранён",
+    )
     setBusy(false)
     if (result) setSaved(content)
   }
 
   async function savePrefilter() {
     setBusy(true)
-    const result = await run(() => api.savePrefilter(prefilter))
+    const result = await run(() =>
+      otherId ? api.saveUserProfile(otherId, { prefilter }) : api.savePrefilter(prefilter),
+    )
     setBusy(false)
     if (!result) return
     const next = result.prefilter ?? prefilter
@@ -55,15 +61,14 @@ export function Profile() {
     setSavedPrefilter(next)
     const dropped = result.applied?.dropped ?? 0
     const restored = result.applied?.restored ?? 0
-    notify(
-      `Теги сохранены. Отсеяно ${dropped}, возвращено в очередь ${restored}`,
-      "ok",
-    )
+    notify(`Теги сохранены. Отсеяно ${dropped}, возвращено в очередь ${restored}`, "ok")
   }
 
   async function persistBlacklist(next: BlacklistedCompany[]) {
     setBusy(true)
-    const result = await run(() => api.saveBlacklist(next))
+    const result = await run(() =>
+      otherId ? api.saveUserProfile(otherId, { blacklist: next }) : api.saveBlacklist(next),
+    )
     setBusy(false)
     if (!result) return
     setBlacklist(result.blacklist ?? next)
@@ -87,14 +92,23 @@ export function Profile() {
   async function rescore() {
     if (!confirm("Обнулить score активных вакансий и пересчитать заново?")) return
     setBusy(true)
-    const result = await run(() => api.rescore())
+    const result = await run(() => (otherId ? api.rescoreUser(otherId) : api.rescore()))
     setBusy(false)
     if (result) notify(`Пересчитано вакансий: ${result.scored}`, "ok")
   }
 
+  const showModel = !otherId && me?.role === "master"
+
   return (
     <>
-      <ModelPicker />
+      {subject ? (
+        <section className="card">
+          <h3 className="card-title">Настройки: {subject.name}</h3>
+          <p className="card-sub">Префильтр, чёрный список и текст для скоринга этого человека. Вакансии и отклики не показываются.</p>
+        </section>
+      ) : null}
+
+      {showModel ? <ModelPicker /> : null}
 
       {content === null ? (
         <Skeletons count={1} />
@@ -104,7 +118,7 @@ export function Profile() {
             <h3 className="card-title">Префильтр по названию</h3>
             <p className="card-sub">
               До модели. Title проходит, если содержит хотя бы один тег из «должно быть», и не содержит
-              ни одного из «не должно». Регистр и лишние пробелы не важны.
+              ни одного из «не должно». Регистр и лишние пробелы не важны. Только для этого профиля.
             </p>
 
             <div className="prefilter-grid">
@@ -148,8 +162,8 @@ export function Profile() {
           <section className="card">
             <h3 className="card-title">Чёрный список компаний</h3>
             <p className="card-sub">
-              Вакансии этих компаний не записываются при прогоне и не показываются в списках. Уже лежащие в базе
-              строки остаются, просто скрыты — если убрать компанию из списка, они снова появятся.
+              Вакансии этих компаний по-прежнему собираются для всех, но скрыты в ваших списках и не
+              скорятся для этого профиля. Если убрать компанию из списка, они снова появятся у вас.
             </p>
 
             <div className="tag-editor">

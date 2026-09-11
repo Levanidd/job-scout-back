@@ -48,8 +48,10 @@ Cloudflare оборвал вместе с `waitUntil`, если ничего н�
 React + Vite в `admin/`, сборка в `admin/dist`, раздаётся через assets binding. Статика отвечает
 первой только на существующие файлы, поэтому `/api/*` уходит в воркер.
 
-Экраны: Ресурсы (Discovery, Исследовать, Источники), Вакансии, Подался, Статистика, Профиль.
-Вход по `ADMIN_TOKEN`, который хранится в `sessionStorage` вкладки.
+Экраны: Ресурсы (Discovery, Исследовать, Источники), Вакансии, Подался, Статистика, Пользователи (только мастер), Профиль.
+Вход по личному токену: первый логин с `ADMIN_TOKEN` создаёт мастера, дальше у каждого свой токен из вкладки «Пользователи». Токен хранится в `sessionStorage` вкладки.
+
+Вакансии, источники и ресурсы общие. Префильтр, чёрный список, скоринг, отклики и статусы — у каждого свои. Добавить источник может любой; выключить, удалить и настроить модель — только мастер. Telegram-дайджест сейчас выключен.
 
 Выставленные фильтры и сортировка переживают перезагрузку — они лежат в `localStorage` под ключами
 `jobradar.<экран>.*`. Список вакансий, открытый по кнопке из карточки источника или компании, туда не
@@ -73,14 +75,22 @@ deploy command `npx wrangler deploy`. Отдельно катить руками
 
 Все пути кроме `/` и `/api/health` требуют заголовок:
 
-`Authorization: Bearer <ADMIN_TOKEN>`
+`Authorization: Bearer <токен пользователя>`
+
+Первый вход с `ADMIN_TOKEN`, пока таблица пользователей пуста, создаёт мастера и переносит текущий профиль, оценки и статусы. Дальше этот же секрет работает только если его хеш лежит в `users`.
 
 | Метод | Путь | Зачем |
 |---|---|---|
 | GET | `/api/health` | живость |
-| GET/POST/PATCH/DELETE | `/api/sources[/:id]` | источники |
+| GET | `/api/me` | текущий пользователь |
+| GET/POST | `/api/users` | список и создание (мастер) |
+| PATCH | `/api/users/:id` | имя и роль (мастер; последнего мастера снять нельзя) |
+| GET/PUT | `/api/users/:id/profile` | префильтр / чёрный список / текст скоринга другого человека |
+| POST | `/api/users/:id/rescore` | пересчёт оценок этого человека |
+| GET/POST | `/api/sources` | источники; добавить может любой |
+| PATCH/DELETE | `/api/sources/:id` | выкл / имя / удаление — только мастер |
 | POST | `/api/sources/:id/run` | прогон одного |
-| POST | `/api/run` | цикл ingest + score + notify |
+| POST | `/api/run` | цикл ingest + score для того, кто нажал |
 | POST | `/api/detect` | `{url}` → ATS |
 | POST | `/api/sources/bulk-detect` | `{urls:[]}` |
 | GET | `/api/discovered?state=new` | новые компании |
@@ -88,12 +98,13 @@ deploy command `npx wrangler deploy`. Отдельно катить руками
 | POST | `/api/discovered/:key/dismiss` | скрыть |
 | GET | `/api/jobs` | `?status=&min_score=&tier=&companies=&added_days=&added_from=&viewed=&later=&applied=&sort=&dir=`; `status=any` — включая отсеянные |
 | GET | `/api/jobs/companies` | компании с их числом вакансий под те же фильтры |
-| PATCH | `/api/jobs/:id` | `{status}`, `{notes}`, `{viewed}` или `{later}` |
+| PATCH | `/api/jobs/:id` | `{status}`, `{notes}`, `{viewed}` или `{later}` — только свои |
 | GET | `/api/applied` | отклики; `?status=applied\|interview\|rejected` |
 | POST | `/api/applied` | вакансия, добавленная руками, без ATS |
 | GET | `/api/stats` | воронка найдено/просмотрено/подался, разбивка откликов, ряды по неделям и месяцам |
 | GET/PUT | `/api/profile` | текст для скоринга, keep/drop-теги и чёрный список компаний |
 | POST | `/api/profile/rescore` | обнулить score и пересчитать |
+| PUT | `/api/settings` | модель Gemini — только мастер |
 | GET | `/api/runs` | последние 50 прогонов |
 
 Роуты разложены по доменам в `src/routes/`; `src/index.ts` только собирает приложение,
@@ -105,7 +116,7 @@ deploy command `npx wrangler deploy`. Отдельно катить руками
 
 | Имя | Зачем |
 |---|---|
-| `ADMIN_TOKEN` | доступ к API |
+| `ADMIN_TOKEN` | создаёт первого мастера; дальше вход по личным токенам |
 | `GEMINI_API_KEY` | скоринг через Gemini |
 | `GEMINI_MODEL` | имя модели, по умолчанию `gemini-3.7-flash` |
 | `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` | дайджест |

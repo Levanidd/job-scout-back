@@ -1,76 +1,91 @@
 import { Hono } from "hono"
 
+import { currentUser, masterGuard } from "../auth"
 import { message } from "../errors"
 import { prefilterAndScore, reapplyPrefilter } from "../ingest"
 import { isThinkingLevel, listModels, validateModel, type ThinkingLevel } from "../scoring"
-import {
-  SETTING_MODEL,
-  SETTING_THINKING,
-  listOpenCompanies,
-  resolveCompanyBlacklist,
-  resolvePrefilter,
-  settingsView,
-  writeCompanyBlacklist,
-  writePrefilter,
-  writeSetting,
-} from "../settings"
-import type { Bindings } from "../types"
+import { SETTING_MODEL, SETTING_THINKING, listOpenCompanies, settingsView, writeSetting } from "../settings"
+import type { AppEnv, Bindings } from "../types"
+import { loadUserProfile, saveUserBlacklist, saveUserContent, saveUserPrefilter } from "../users"
 
-export const profile = new Hono<{ Bindings: Bindings }>()
+export const profile = new Hono<AppEnv>()
 
-profile.get("/api/profile", async (c) => {
-  const row = await c.env.DB.prepare(`SELECT content FROM profile WHERE id = 1`).first<{ content: string }>()
-  const [prefilter, blacklist, companies] = await Promise.all([
-    resolvePrefilter(c.env),
-    resolveCompanyBlacklist(c.env),
-    listOpenCompanies(c.env),
-  ])
-  return c.json({ content: row?.content ?? "", prefilter, blacklist, companies })
-})
+type ProfileBody = {
+  content?: string
+  prefilter?: { keep?: unknown; drop?: unknown }
+  blacklist?: unknown
+}
 
-profile.put("/api/profile", async (c) => {
-  const body = await c.req.json<{
-    content?: string
-    prefilter?: { keep?: unknown; drop?: unknown }
-    blacklist?: unknown
-  }>()
+export async function applyProfilePatch(
+  env: Bindings,
+  userId: number,
+  body: ProfileBody,
+): Promise<
+  | { ok: true; prefilter: { keep: string[]; drop: string[] }; applied?: { dropped: number; restored: number }; blacklist: unknown }
+  | { error: string; status: 400 | 404 }
+> {
   if (typeof body.content !== "string" && !body.prefilter && !Array.isArray(body.blacklist)) {
-    return c.json({ error: "content, prefilter or blacklist required" }, 400)
+    return { error: "content, prefilter or blacklist required", status: 400 }
   }
+
+  const existing = await loadUserProfile(env, userId)
+  if (!existing) return { error: "not found", status: 404 }
 
   if (typeof body.content === "string") {
-    await c.env.DB.prepare(
-      `INSERT INTO profile (id, content) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET content = excluded.content`,
-    )
-      .bind(body.content)
-      .run()
+    await saveUserContent(env, userId, body.content)
   }
 
-  let prefilter = await resolvePrefilter(c.env)
+  let prefilter = existing.prefilter
   let applied: { dropped: number; restored: number } | undefined
   if (body.prefilter) {
-    prefilter = await writePrefilter(c.env, {
-      keep: Array.isArray(body.prefilter.keep) ? body.prefilter.keep.map(String) : prefilter.keep,
-      drop: Array.isArray(body.prefilter.drop) ? body.prefilter.drop.map(String) : prefilter.drop,
-    })
-    applied = await reapplyPrefilter(c.env)
+    prefilter = await saveUserPrefilter(
+      env,
+      userId,
+      Array.isArray(body.prefilter.keep) ? body.prefilter.keep : prefilter.keep,
+      Array.isArray(body.prefilter.drop) ? body.prefilter.drop : prefilter.drop,
+    )
+    applied = await reapplyPrefilter(env, userId)
   }
 
   const blacklist = Array.isArray(body.blacklist)
-    ? await writeCompanyBlacklist(c.env, body.blacklist)
-    : await resolveCompanyBlacklist(c.env)
+    ? await saveUserBlacklist(env, userId, body.blacklist)
+    : existing.blacklist
 
-  return c.json({ ok: true, prefilter, applied, blacklist })
+  return { ok: true, prefilter, applied, blacklist }
+}
+
+export async function resetAndScore(env: Bindings, userId: number): Promise<{ ok: true; scored: number }> {
+  await env.DB.prepare(
+    `UPDATE user_jobs SET score = NULL, score_reason = NULL, flags = NULL
+     WHERE user_id = ? AND job_id IN (
+       SELECT id FROM jobs WHERE closed_at IS NULL
+     ) AND COALESCE(status, 'new') NOT IN ('ignored', 'rejected', 'off_profile')`,
+  )
+    .bind(userId)
+    .run()
+  const { scored } = await prefilterAndScore(env, userId)
+  return { ok: true, scored }
+}
+
+profile.get("/api/profile", async (c) => {
+  const row = await loadUserProfile(c.env, currentUser(c).id)
+  const companies = await listOpenCompanies(c.env)
+  return c.json({
+    content: row?.content ?? "",
+    prefilter: row?.prefilter ?? { keep: [], drop: [] },
+    blacklist: row?.blacklist ?? [],
+    companies,
+  })
 })
 
-profile.post("/api/profile/rescore", async (c) => {
-  await c.env.DB.prepare(
-    `UPDATE jobs SET score = NULL, score_reason = NULL, flags = NULL
-     WHERE closed_at IS NULL AND status NOT IN ('ignored', 'rejected', 'off_profile')`,
-  ).run()
-  const { scored } = await prefilterAndScore(c.env)
-  return c.json({ ok: true, scored })
+profile.put("/api/profile", async (c) => {
+  const body = await c.req.json<ProfileBody>().catch(() => ({}) as ProfileBody)
+  const result = await applyProfilePatch(c.env, currentUser(c).id, body)
+  if ("error" in result) return c.json({ error: result.error }, result.status)
+  return c.json(result)
 })
+
+profile.post("/api/profile/rescore", async (c) => c.json(await resetAndScore(c.env, currentUser(c).id)))
 
 profile.get("/api/settings", async (c) => c.json(await settingsView(c.env)))
 
@@ -84,6 +99,8 @@ profile.get("/api/models", async (c) => {
 })
 
 profile.put("/api/settings", async (c) => {
+  const denied = masterGuard(c)
+  if (denied) return denied
   const body = await c.req.json<{ model?: string; thinking_level?: string }>()
   const model = body.model?.trim()
   const thinking = body.thinking_level?.trim()
@@ -97,7 +114,6 @@ profile.put("/api/settings", async (c) => {
       ? (thinking as ThinkingLevel)
       : (await settingsView(c.env)).thinking_level
     try {
-      // A model that cannot actually be called should fail here, not on the next run.
       await validateModel(c.env.GEMINI_API_KEY, model, level)
     } catch (error) {
       return c.json({ error: message(error) }, 400)

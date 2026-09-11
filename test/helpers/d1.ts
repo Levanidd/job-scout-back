@@ -1,7 +1,9 @@
 import { readFileSync, readdirSync } from "node:fs"
+import { createHash } from "node:crypto"
 import { DatabaseSync } from "node:sqlite"
 import { join } from "node:path"
 
+import { DEFAULT_PREFILTER } from "../../src/prefilter"
 import type { Bindings } from "../../src/types"
 
 type Row = Record<string, unknown>
@@ -94,6 +96,8 @@ const MIGRATIONS = join(import.meta.dirname, "..", "..", "migrations")
 
 export type TestEnv = Bindings & { DB: D1Database }
 
+export const TEST_USER_ID = 1
+
 /** A fresh database with every migration applied and the demo sources removed. */
 export function testEnv(overrides: Partial<Bindings> = {}): TestEnv {
   const db = new DatabaseSync(":memory:")
@@ -104,6 +108,15 @@ export function testEnv(overrides: Partial<Bindings> = {}): TestEnv {
     db.exec(readFileSync(join(MIGRATIONS, file), "utf8"))
   }
   db.exec("DELETE FROM sources")
+  const tokenHash = createHash("sha256").update("test").digest("hex")
+  db.prepare(`INSERT INTO users (id, name, role, token_hash) VALUES (?, 'Мастер', 'master', ?)`).run(
+    TEST_USER_ID,
+    tokenHash,
+  )
+  db.prepare(
+    `INSERT INTO user_profiles (user_id, content, prefilter_keep, prefilter_drop, blacklist)
+     VALUES (?, '', ?, ?, '[]')`,
+  ).run(TEST_USER_ID, JSON.stringify(DEFAULT_PREFILTER.keep), JSON.stringify(DEFAULT_PREFILTER.drop))
   return {
     DB: new FakeD1(db) as unknown as D1Database,
     ADMIN_TOKEN: "test",

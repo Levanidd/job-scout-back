@@ -119,7 +119,12 @@ describe("jobs", () => {
 
   it("filters by viewed, company and score", async () => {
     const id = await seedJob()
-    await env.DB.prepare(`UPDATE jobs SET score = 80`).run()
+    await env.DB.prepare(
+      `INSERT INTO user_jobs (user_id, job_id, score) VALUES (1, ?, 80)
+       ON CONFLICT(user_id, job_id) DO UPDATE SET score = 80`,
+    )
+      .bind(id)
+      .run()
 
     expect((await call("/api/jobs?viewed=no")).body.jobs).toHaveLength(1)
     expect((await call("/api/jobs?viewed=yes")).body.jobs).toHaveLength(0)
@@ -264,14 +269,19 @@ describe("stats", () => {
     await call(`/api/jobs/${id}`, { method: "PATCH", body: JSON.stringify({ status: "applied" }) })
 
     await env.DB.prepare(
-      `INSERT INTO jobs (id, source_id, external_id, company, company_key, title, url, status, applied_at, first_seen_at, last_seen_at)
+      `INSERT INTO jobs (id, source_id, external_id, company, company_key, title, url, status, first_seen_at, last_seen_at)
        SELECT 'j-int', source_id, '2', company, company_key, 'Interview PM', 'https://acme.example/2',
-              'interview', datetime('now', '-10 days'), datetime('now'), datetime('now') FROM jobs LIMIT 1`,
+              'new', datetime('now'), datetime('now') FROM jobs LIMIT 1`,
     ).run()
     await env.DB.prepare(
-      `INSERT INTO jobs (id, source_id, external_id, company, company_key, title, url, status, applied_at, first_seen_at, last_seen_at)
+      `INSERT INTO jobs (id, source_id, external_id, company, company_key, title, url, status, first_seen_at, last_seen_at)
        SELECT 'j-rej', source_id, '3', company, company_key, 'Rejected PM', 'https://acme.example/3',
-              'rejected', datetime('now'), datetime('now'), datetime('now') FROM jobs LIMIT 1`,
+              'new', datetime('now'), datetime('now') FROM jobs LIMIT 1`,
+    ).run()
+    await env.DB.prepare(
+      `INSERT INTO user_jobs (user_id, job_id, status, applied_at)
+       VALUES (1, 'j-int', 'interview', datetime('now', '-10 days')),
+              (1, 'j-rej', 'rejected', datetime('now'))`,
     ).run()
 
     const res = await call("/api/stats")
@@ -360,5 +370,83 @@ describe("discovery", () => {
 
   it("returns nothing for an unknown explore provider", async () => {
     expect((await call("/api/explore?providers=nonsense")).body).toEqual({ companies: [] })
+  })
+})
+
+describe("users", () => {
+  it("returns the current account", async () => {
+    expect(await call("/api/me")).toMatchObject({
+      status: 200,
+      body: { id: 1, name: "Мастер", role: "master" },
+    })
+  })
+
+  it("lets a master create a user and keeps job actions apart", async () => {
+    const created = await call("/api/users", {
+      method: "POST",
+      body: JSON.stringify({ name: "Лена" }),
+    })
+    expect(created.status).toBe(201)
+    expect(created.body.user).toMatchObject({ name: "Лена", role: "user" })
+    const token = created.body.token as string
+    expect(token).toBeTruthy()
+
+    const id = await seedJob()
+    await call(`/api/jobs/${id}`, { method: "PATCH", body: JSON.stringify({ status: "applied" }) })
+    expect((await call("/api/applied")).body.jobs).toHaveLength(1)
+    expect((await call("/api/applied", { token })).body.jobs).toHaveLength(0)
+
+    await call(`/api/jobs/${id}`, {
+      method: "PATCH",
+      token,
+      body: JSON.stringify({ status: "ignored" }),
+    })
+    expect((await call("/api/jobs", { token })).body.jobs).toHaveLength(0)
+    expect((await call("/api/jobs")).body.jobs).toHaveLength(1)
+    expect((await call("/api/jobs?status=any")).body.jobs[0].status).toBe("applied")
+    expect((await call("/api/jobs?status=any", { token })).body.jobs[0].status).toBe("ignored")
+  })
+
+  it("forbids a regular user from deleting sources or changing the model", async () => {
+    const created = await call("/api/users", {
+      method: "POST",
+      body: JSON.stringify({ name: "Гость" }),
+    })
+    await call("/api/sources", {
+      method: "POST",
+      body: JSON.stringify({ label: "Acme", provider: "greenhouse", token: "acme" }),
+    })
+    const listed = await call("/api/sources")
+    const sourceId = listed.body.sources[0].id
+    const token = created.body.token as string
+
+    expect(
+      (await call(`/api/sources/${sourceId}`, { method: "DELETE", token })).status,
+    ).toBe(403)
+    expect(
+      (await call("/api/settings", { method: "PUT", token, body: JSON.stringify({ model: "x" }) })).status,
+    ).toBe(403)
+    expect((await call("/api/users", { token })).status).toBe(403)
+    expect((await call("/api/sources")).body.sources).toHaveLength(1)
+  })
+
+  it("refuses to demote the last master", async () => {
+    expect(
+      await call("/api/users/1", { method: "PATCH", body: JSON.stringify({ role: "user" }) }),
+    ).toMatchObject({ status: 400, body: { error: "Нужен хотя бы один мастер" } })
+  })
+
+  it("promotes a user to master and back", async () => {
+    const created = await call("/api/users", {
+      method: "POST",
+      body: JSON.stringify({ name: "Второй" }),
+    })
+    const id = created.body.user.id as number
+    expect(
+      await call(`/api/users/${id}`, { method: "PATCH", body: JSON.stringify({ role: "master" }) }),
+    ).toMatchObject({ status: 200, body: { user: { role: "master" } } })
+    expect(
+      await call(`/api/users/${id}`, { method: "PATCH", body: JSON.stringify({ role: "user" }) }),
+    ).toMatchObject({ status: 200, body: { user: { role: "user" } } })
   })
 })

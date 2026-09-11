@@ -1,15 +1,16 @@
 import { Hono } from "hono"
 
+import { currentUser } from "../auth"
 import { enqueueTick, loadCycleView, requestOrigin, startCycle, tickOnce } from "../cycle"
 import { notifyNew, pickSources, prefilterAndScore } from "../ingest"
-import type { Bindings } from "../types"
+import type { AppEnv } from "../types"
 
-export const run = new Hono<{ Bindings: Bindings }>()
+export const run = new Hono<AppEnv>()
 
 run.get("/api/run", async (c) => c.json(await loadCycleView(c.env)))
 
 run.post("/api/run", async (c) => {
-  const cycle = await startCycle(c.env, requestOrigin(c.req.url))
+  const cycle = await startCycle(c.env, requestOrigin(c.req.url), currentUser(c).id)
   enqueueTick(c.env, c.executionCtx)
   return c.json(cycle)
 })
@@ -20,8 +21,6 @@ run.post("/api/run/tick", async (c) => {
   return c.json({ ok: true, more })
 })
 
-// The three steps of a cycle, exposed separately so a single source can still
-// be run from its card without starting the whole walk.
 run.get("/api/run/plan", async (c) => {
   const sources = await pickSources(c.env)
   return c.json({
@@ -37,7 +36,7 @@ run.get("/api/run/plan", async (c) => {
 run.post("/api/score", async (c) => {
   const body = await c.req.json<{ limit?: number }>().catch(() => ({}) as { limit?: number })
   const limit = Number(body.limit) > 0 ? Number(body.limit) : undefined
-  return c.json(await prefilterAndScore(c.env, limit))
+  return c.json(await prefilterAndScore(c.env, currentUser(c).id, limit))
 })
 
 run.post("/api/notify", async (c) => c.json({ notified: await notifyNew(c.env) }))

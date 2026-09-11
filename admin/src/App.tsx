@@ -2,24 +2,28 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType }
 
 import { api, forgetToken, getToken, UnauthorizedError, type JobFilters } from "./api"
 import { AppProvider, type ToastKind } from "./app-context"
-import { BriefcaseIcon, ChartIcon, CheckIcon, PersonIcon, StackIcon } from "./components/icons"
+import { BookIcon, BriefcaseIcon, ChartIcon, CheckIcon, PeopleIcon, PersonIcon, StackIcon } from "./components/icons"
 import { RunProgress, type RunState } from "./components/RunProgress"
 import { Applied } from "./screens/Applied"
+import { Guide } from "./screens/Guide"
 import { Jobs } from "./screens/Jobs"
 import { Profile } from "./screens/Profile"
 import { Resources } from "./screens/Resources"
 import { Stats } from "./screens/Stats"
 import { TokenGate } from "./screens/TokenGate"
-import type { Cycle } from "./types"
+import { Users } from "./screens/Users"
+import type { AuthUser, Cycle } from "./types"
 
-type TabId = "resources" | "jobs" | "applied" | "stats" | "profile"
+type TabId = "resources" | "jobs" | "applied" | "stats" | "profile" | "users" | "guide"
 
-const TABS: Array<{ id: TabId; label: string; icon: ComponentType<{ className?: string }> }> = [
+const TABS: Array<{ id: TabId; label: string; icon: ComponentType<{ className?: string }>; master?: boolean }> = [
   { id: "resources", label: "Ресурсы", icon: StackIcon },
   { id: "jobs", label: "Вакансии", icon: BriefcaseIcon },
   { id: "applied", label: "Подался", icon: CheckIcon },
   { id: "stats", label: "Статистика", icon: ChartIcon },
+  { id: "users", label: "Пользователи", icon: PeopleIcon, master: true },
   { id: "profile", label: "Профиль", icon: PersonIcon },
+  { id: "guide", label: "Инструкция", icon: BookIcon },
 ]
 
 type Toast = { message: string; kind: ToastKind }
@@ -48,6 +52,7 @@ function doneMessage(cycle: Cycle): string {
 
 export default function App() {
   const [authorized, setAuthorized] = useState(() => Boolean(getToken()))
+  const [me, setMe] = useState<AuthUser | null>(null)
   const [tab, setTab] = useState<TabId>("resources")
   // Opening a company from Discovery remounts the job list with its own
   // filters; picking the tab by hand always starts from the default view.
@@ -69,6 +74,7 @@ export default function App() {
 
   const logout = useCallback(() => {
     forgetToken()
+    setMe(null)
     setAuthorized(false)
   }, [])
 
@@ -112,7 +118,8 @@ export default function App() {
     if (!authorized) return
     void (async () => {
       try {
-        const cycle = await api.cycle()
+        const [user, cycle] = await Promise.all([api.me(), api.cycle()])
+        setMe(user)
         applyCycle(cycle)
       } catch (error) {
         if (error instanceof UnauthorizedError) logout()
@@ -153,6 +160,7 @@ export default function App() {
 
   const context = useMemo(
     () => ({
+      me,
       notify,
       logout,
       refreshTick,
@@ -162,7 +170,7 @@ export default function App() {
       runningSourceId: run?.currentId ?? null,
       cycleRunning: running,
     }),
-    [notify, logout, refreshTick, sourcesTick, run?.currentId, running],
+    [me, notify, logout, refreshTick, sourcesTick, run?.currentId, running],
   )
 
   async function startCycle() {
@@ -185,6 +193,7 @@ export default function App() {
         <header className="header">
           <h1>JobRadar</h1>
           <div className="header-actions">
+            {me ? <span className="muted">{me.name}</span> : null}
             <button
               className="btn btn-primary btn-sm"
               disabled={running}
@@ -203,7 +212,7 @@ export default function App() {
         </header>
 
         <nav className="tabs">
-          {TABS.map((item) => {
+          {TABS.filter((item) => !item.master || me?.role === "master").map((item) => {
             const Icon = item.icon
             return (
               <button
@@ -230,7 +239,9 @@ export default function App() {
           {tab === "jobs" ? <Jobs key={preset?.seq ?? "all"} preset={preset?.filters} /> : null}
           {tab === "applied" ? <Applied /> : null}
           {tab === "stats" ? <Stats /> : null}
+          {tab === "users" && me?.role === "master" ? <Users /> : null}
           {tab === "profile" ? <Profile /> : null}
+          {tab === "guide" ? <Guide /> : null}
         </main>
 
         {toast ? <div className={`toast toast-${toast.kind}`}>{toast.message}</div> : null}

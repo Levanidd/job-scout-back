@@ -1,9 +1,10 @@
 import { Hono } from "hono"
 
-import { excludeBlockedCompanies } from "../settings"
-import type { Bindings } from "../types"
+import { currentUser } from "../auth"
+import { excludeBlockedCompaniesForUser } from "../settings"
+import type { AppEnv } from "../types"
 
-export const stats = new Hono<{ Bindings: Bindings }>()
+export const stats = new Hono<AppEnv>()
 
 export const WEEK_COUNT = 12
 export const MONTH_COUNT = 12
@@ -101,14 +102,16 @@ export function fillMonths(rows: Bucket[]): Bucket[] {
 }
 
 const PIPELINE_BREAKDOWN = `
-  SUM(CASE WHEN j.status = 'interview' THEN 1 ELSE 0 END) AS interview,
-  SUM(CASE WHEN j.status = 'rejected' THEN 1 ELSE 0 END) AS rejected,
-  SUM(CASE WHEN j.status NOT IN ('interview', 'rejected') THEN 1 ELSE 0 END) AS applied`
+  SUM(CASE WHEN uj.status = 'interview' THEN 1 ELSE 0 END) AS interview,
+  SUM(CASE WHEN uj.status = 'rejected' THEN 1 ELSE 0 END) AS rejected,
+  SUM(CASE WHEN uj.status NOT IN ('interview', 'rejected') THEN 1 ELSE 0 END) AS applied`
 
 stats.get("/api/stats", async (c) => {
-  const blocked = await excludeBlockedCompanies(c.env, "j.company_key")
+  const userId = currentUser(c).id
+  const blocked = await excludeBlockedCompaniesForUser(c.env, userId, "j.company_key")
   const where = blocked.sql
-  const binds = blocked.binds
+  const binds = [userId, ...blocked.binds]
+  const join = `FROM jobs j LEFT JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = ?`
 
   const [totals, pipeline, companies, weeks, months] = await c.env.DB.batch<
     TotalsRow | PipelineRow | CompanyRow | Bucket
@@ -117,45 +120,45 @@ stats.get("/api/stats", async (c) => {
       `SELECT
          COUNT(*) AS found,
          SUM(CASE WHEN j.closed_at IS NULL THEN 1 ELSE 0 END) AS open,
-         SUM(CASE WHEN j.viewed_at IS NOT NULL THEN 1 ELSE 0 END) AS viewed,
-         SUM(CASE WHEN j.later_at IS NOT NULL THEN 1 ELSE 0 END) AS later,
-         SUM(CASE WHEN j.applied_at IS NOT NULL THEN 1 ELSE 0 END) AS applied
-       FROM jobs j
+         SUM(CASE WHEN uj.viewed_at IS NOT NULL THEN 1 ELSE 0 END) AS viewed,
+         SUM(CASE WHEN uj.later_at IS NOT NULL THEN 1 ELSE 0 END) AS later,
+         SUM(CASE WHEN uj.applied_at IS NOT NULL THEN 1 ELSE 0 END) AS applied
+       ${join}
        WHERE ${where}`,
     ).bind(...binds),
     c.env.DB.prepare(
       `SELECT
-         SUM(CASE WHEN j.status = 'interview' THEN 1 ELSE 0 END) AS interview,
-         SUM(CASE WHEN j.status = 'rejected' THEN 1 ELSE 0 END) AS rejected,
-         SUM(CASE WHEN j.status NOT IN ('interview', 'rejected') THEN 1 ELSE 0 END) AS waiting
-       FROM jobs j
-       WHERE j.applied_at IS NOT NULL AND ${where}`,
+         SUM(CASE WHEN uj.status = 'interview' THEN 1 ELSE 0 END) AS interview,
+         SUM(CASE WHEN uj.status = 'rejected' THEN 1 ELSE 0 END) AS rejected,
+         SUM(CASE WHEN uj.status NOT IN ('interview', 'rejected') THEN 1 ELSE 0 END) AS waiting
+       ${join}
+       WHERE uj.applied_at IS NOT NULL AND ${where}`,
     ).bind(...binds),
     c.env.DB.prepare(
       `SELECT j.company_key, MIN(j.company) AS company, COUNT(*) AS n
-       FROM jobs j
-       WHERE j.applied_at IS NOT NULL AND ${where}
+       ${join}
+       WHERE uj.applied_at IS NOT NULL AND ${where}
        GROUP BY j.company_key
        ORDER BY n DESC, company COLLATE NOCASE
        LIMIT 8`,
     ).bind(...binds),
     c.env.DB.prepare(
       `SELECT
-         date(j.applied_at, '-' || ((CAST(strftime('%w', j.applied_at) AS INTEGER) + 6) % 7) || ' days') AS start,
+         date(uj.applied_at, '-' || ((CAST(strftime('%w', uj.applied_at) AS INTEGER) + 6) % 7) || ' days') AS start,
          ${PIPELINE_BREAKDOWN},
          COUNT(*) AS total
-       FROM jobs j
-       WHERE j.applied_at IS NOT NULL AND ${where}
+       ${join}
+       WHERE uj.applied_at IS NOT NULL AND ${where}
        GROUP BY start
        ORDER BY start`,
     ).bind(...binds),
     c.env.DB.prepare(
       `SELECT
-         strftime('%Y-%m', j.applied_at) AS start,
+         strftime('%Y-%m', uj.applied_at) AS start,
          ${PIPELINE_BREAKDOWN},
          COUNT(*) AS total
-       FROM jobs j
-       WHERE j.applied_at IS NOT NULL AND ${where}
+       ${join}
+       WHERE uj.applied_at IS NOT NULL AND ${where}
        GROUP BY start
        ORDER BY start`,
     ).bind(...binds),

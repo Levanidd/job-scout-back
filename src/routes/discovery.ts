@@ -1,14 +1,15 @@
 import { Hono } from "hono"
 
 import { adapters } from "../adapters"
+import { currentUser } from "../auth"
 import { placeholders } from "../db"
 import { ensureExploreSources, listExploreBoards } from "../explore"
 import { addDiscovered, trackedCompanyKeys } from "../ingest"
-import { blockedCompanyKeys } from "../settings"
+import { blockedCompanyKeysForUser } from "../settings"
 import { trackCompany } from "../sources"
-import type { Bindings } from "../types"
+import type { AppEnv } from "../types"
 
-export const discovery = new Hono<{ Bindings: Bindings }>()
+export const discovery = new Hono<AppEnv>()
 
 discovery.get("/api/discovered", async (c) => {
   const state = c.req.query("state") ?? ""
@@ -91,7 +92,10 @@ discovery.get("/api/explore", async (c) => {
 
   // Explore is a suggestion list: an employer we already follow or already
   // blocked is not a suggestion.
-  const [blocked, watched] = await Promise.all([blockedCompanyKeys(c.env), trackedCompanyKeys(c.env.DB)])
+  const [blocked, watched] = await Promise.all([
+    blockedCompanyKeysForUser(c.env, currentUser(c).id),
+    trackedCompanyKeys(c.env.DB),
+  ])
   const companies = rows.results.filter(
     (row) => row.company_key && !watched.has(row.company_key) && !blocked.has(row.company_key),
   )
