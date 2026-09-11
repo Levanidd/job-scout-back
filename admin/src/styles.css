@@ -1351,18 +1351,12 @@ a.mono:hover {
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-}
-
-.guide-caption {
-  font-size: 12px;
-  color: var(--text-tertiary);
+  gap: 12px;
 }
 
 .guide-shot {
-  position: relative;
   overflow-x: auto;
-  padding: 40px 12px 32px;
+  padding: 18px 16px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
   border-radius: 16px;
@@ -1370,36 +1364,119 @@ a.mono:hover {
   user-select: none;
 }
 
+/* Callout colours never reuse the app accent, otherwise a ring around a
+   violet primary button disappears into the button. */
+.tone-lime {
+  --hit: #daff47;
+  --hit-glow: rgba(218, 255, 71, 0.18);
+  --hit-ink: #16190a;
+}
+
+.tone-cyan {
+  --hit: #00e5cc;
+  --hit-glow: rgba(0, 229, 204, 0.18);
+  --hit-ink: #04201c;
+}
+
+.tone-pink {
+  --hit: #ff3cac;
+  --hit-glow: rgba(255, 60, 172, 0.2);
+  --hit-ink: #ffffff;
+}
+
+.tone-amber {
+  --hit: #ff9f0a;
+  --hit-glow: rgba(255, 159, 10, 0.2);
+  --hit-ink: #1c1200;
+}
+
+.guide-hit {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.guide-ring {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 2px var(--hit),
+    0 0 0 5px var(--hit-glow);
+}
+
+.guide-mark {
+  display: inline-grid;
+  place-content: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--hit);
+  color: var(--hit-ink);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.guide-legend {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.guide-legend li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.guide-legend .guide-mark {
+  margin-top: 1px;
+}
+
 .guide-stack {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
+}
+
+.guide-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .guide-chrome {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
-  padding: 10px 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
   background: rgba(13, 13, 15, 0.9);
   border: 1px solid var(--border-default);
   border-radius: 12px;
 }
 
-.guide-chrome-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+.guide-brand {
+  margin-right: auto;
 }
 
 .guide-mini-card {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
-  padding: 12px;
+  gap: 10px;
+  padding: 14px;
   background: var(--surface-card);
   border: 1px solid var(--border-default);
   border-radius: 14px;
@@ -1413,12 +1490,12 @@ a.mono:hover {
 .guide-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 12px;
 }
 
 .guide-textarea {
-  width: 100%;
-  min-height: 48px;
+  display: block;
+  min-width: 260px;
   padding: 10px 12px;
   border-radius: var(--radius-input);
   background: var(--surface-input);
@@ -1427,7 +1504,7 @@ a.mono:hover {
 }
 
 .guide-pills {
-  display: flex;
+  display: inline-flex;
   gap: 4px;
   padding: 4px;
   background: rgba(255, 255, 255, 0.06);
@@ -1463,9 +1540,9 @@ a.mono:hover {
 .guide-source-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   flex-wrap: wrap;
-  padding: 10px 12px;
+  padding: 12px 14px;
   background: var(--surface-card);
   border: 1px solid var(--border-default);
   border-radius: 14px;
@@ -1476,17 +1553,17 @@ a.mono:hover {
 }
 
 .guide-table {
-  min-width: 520px;
+  min-width: 540px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 8px;
 }
 
 .guide-thead,
 .guide-trow {
   display: grid;
-  grid-template-columns: 72px 72px 64px minmax(140px, 1fr) 72px;
-  gap: 8px;
+  grid-template-columns: 68px 68px 60px minmax(160px, 1fr) 64px;
+  gap: 12px;
   align-items: center;
 }
 
@@ -1496,45 +1573,23 @@ a.mono:hover {
   color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  padding: 0 4px 8px;
+  padding: 0 12px;
 }
 
 .guide-trow {
-  padding: 10px 4px;
+  padding: 14px 12px;
   background: var(--surface-card);
+  border: 1px solid var(--border-default);
   border-radius: 12px;
+}
+
+.guide-cell {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .guide-link {
   color: var(--accent);
   font-weight: 600;
-}
-
-.guide-hit {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  border-radius: 12px;
-  box-shadow: 0 0 0 2px var(--accent), 0 0 0 6px var(--accent-dim);
-}
-
-.guide-pin {
-  position: absolute;
-  left: 50%;
-  bottom: calc(100% + 6px);
-  transform: translateX(-50%);
-  z-index: 1;
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-}
-
-.guide-hit-down .guide-pin {
-  bottom: auto;
-  top: calc(100% + 6px);
 }
