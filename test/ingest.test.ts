@@ -195,6 +195,50 @@ describe("upsertJobs", () => {
       first_seen_at: "2025-12-01 00:00:00",
     })
   })
+
+  /**
+   * The board took the opening down and put it back under a new id, which is how
+   * an opening someone already applied to came back looking brand new.
+   */
+  it("carries a verdict onto the same opening reposted under a new id", async () => {
+    const source = await addSource()
+    await upsertJobs(env, source, [job()], new Set())
+    const first = await one<{ id: string }>(env, `SELECT id FROM jobs`)
+    await env.DB.prepare(
+      `INSERT INTO user_jobs (user_id, job_id, status, applied_at, notes, score)
+       VALUES (?, ?, 'applied', '2026-01-02 10:00:00', 'sent CV', 88)`,
+    )
+      .bind(TEST_USER_ID, first!.id)
+      .run()
+    await env.DB.prepare(`UPDATE jobs SET closed_at = '2026-01-05 10:00:00'`).run()
+
+    await upsertJobs(env, source, [job({ externalId: "2", url: "https://acme.example/jobs/2" })], new Set())
+
+    const stored = await rows<Record<string, unknown>>(
+      env,
+      `SELECT j.url, j.closed_at, uj.status, uj.applied_at, uj.notes, uj.score
+       FROM jobs j LEFT JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = ?`,
+      TEST_USER_ID,
+    )
+    expect(stored).toHaveLength(1)
+    expect(stored[0]).toMatchObject({
+      url: "https://acme.example/jobs/2",
+      closed_at: null,
+      status: "applied",
+      applied_at: "2026-01-02 10:00:00",
+      notes: "sent CV",
+      score: 88,
+    })
+  })
+
+  it("keeps the live copy when the same opening arrives twice from company boards", async () => {
+    const source = await addSource()
+    await upsertJobs(env, source, [job()], new Set())
+    const other = await addSource({ label: "Acme Careers", provider: "lever", token: "acme" })
+
+    expect(await upsertJobs(env, other, [job({ externalId: "7", url: "https://other.example/7" })], new Set())).toBe(0)
+    expect(await rows(env, `SELECT id FROM jobs`)).toHaveLength(1)
+  })
 })
 
 describe("prefilterAndScore", () => {

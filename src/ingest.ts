@@ -51,6 +51,7 @@ type TwinRow = {
   id: string
   kind: string
   first_seen_at: string
+  closed_at: string | null
 }
 
 export type SourceStep = RunResult & {
@@ -146,11 +147,15 @@ export async function upsertJobs(
   )
   const twins = new Map<string, TwinRow>()
   const openings = [...new Set(wanted.filter((row) => !present.has(row.id) && row.opening).map((row) => row.opening!))]
+  // Closed rows are in scope on purpose: a board that takes an opening down and
+  // puts it back gives it a new id, and the row we already have for it is closed
+  // by then. A live twin still wins over a retired one.
   for (const twin of await selectIn<TwinRow & { dedup_key: string }>(
     env,
-    (list) => `SELECT j.id, j.dedup_key, s.kind, j.first_seen_at
+    (list) => `SELECT j.id, j.dedup_key, s.kind, j.first_seen_at, j.closed_at
        FROM jobs j JOIN sources s ON s.id = j.source_id
-       WHERE j.closed_at IS NULL AND j.dedup_key IN (${list})`,
+       WHERE j.dedup_key IN (${list})
+       ORDER BY j.closed_at IS NULL DESC, j.closed_at DESC`,
     openings,
   )) {
     if (!twins.has(twin.dedup_key)) twins.set(twin.dedup_key, twin)
@@ -171,7 +176,13 @@ export async function upsertJobs(
     if (opening && !existing) {
       const twin = twins.get(opening)
       if (twin) {
-        if (source.kind !== "company" || twin.kind !== "query") continue
+        // A live twin means the opening is already in the list, so this copy is
+        // dropped — unless it comes from the employer and the twin from an
+        // aggregator, where the employer's row takes over. A retired twin is the
+        // same opening reposted: it has to hand over its history, otherwise the
+        // reposting reads as a brand-new vacancy to whoever already applied.
+        const takeOver = Boolean(twin.closed_at) || (source.kind === "company" && twin.kind === "query")
+        if (!takeOver) continue
         inherit = twin
         twins.delete(opening)
       }
