@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react"
 import { api } from "../api"
 import { useAction, useApp, useLoader } from "../app-context"
 import { oneOf, usePersistentState } from "../persist"
-import { Age, Empty, Field, ScoreBadge, Skeletons, formatDate, formatSalary } from "../components/common"
+import { Age, Count, Empty, Field, ScoreBadge, Skeletons, formatDate, formatSalary } from "../components/common"
 import type { Job, JobStatus } from "../types"
 
 function todayLocal(): string {
@@ -396,6 +396,8 @@ export function Applied() {
           Обновить
         </button>
       </div>
+
+      {jobs?.length ? <Count shown={jobs.length} forms={["отклик", "отклика", "откликов"]} /> : null}
 
       {jobs === null ? (
         <Skeletons />

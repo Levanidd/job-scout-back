@@ -4,7 +4,7 @@ import { api } from "../api"
 import { useAction, useApp, useLoader } from "../app-context"
 import { oneOf, text, usePersistentState } from "../persist"
 import { SortHeader } from "../components/SortHeader"
-import { Age, Empty, ScoreBadge, Skeletons, plural } from "../components/common"
+import { Age, Count, Empty, ScoreBadge, Skeletons } from "../components/common"
 import type { DiscoveredCompany } from "../types"
 
 type StateFilter = "" | "new" | "added" | "dismissed"
@@ -203,10 +203,7 @@ export function Discovery({ onOpenJobs }: { onOpenJobs: (company: DiscoveredComp
         <Empty title="Ничего не нашлось" hint="Сбросьте фильтры или поиск." />
       ) : (
         <>
-          <p className="muted">
-            {rows.length} {plural(rows.length, ["компания", "компании", "компаний"])}
-            {rows.length !== companies.length ? ` из ${companies.length}` : ""}
-          </p>
+          <Count shown={rows.length} total={companies.length} forms={["компания", "компании", "компаний"]} />
           <div className="table-wrap">
             <table className="table">
               <thead>

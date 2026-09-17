@@ -6,7 +6,7 @@ import { usePersistentState } from "../persist"
 import { ConfirmDialog } from "../components/ConfirmDialog"
 import { MultiSelect } from "../components/MultiSelect"
 import { SortHeader } from "../components/SortHeader"
-import { Age, Empty, Flags, ScoreBadge, Skeletons, formatDate, formatSalary, plural } from "../components/common"
+import { Age, Count, Empty, Flags, ScoreBadge, Skeletons, formatDate, formatSalary, plural } from "../components/common"
 import type { CompanyFacet, Job, JobStatus } from "../types"
 
 const STATUS_LABELS: Record<JobStatus, string> = {
@@ -444,12 +444,11 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
       ) : (
         <>
           <div className="row">
-            <p className="muted">
-              {jobs.length} {plural(jobs.length, ["вакансия", "вакансии", "вакансий"])}
+            <Count shown={jobs.length} forms={["вакансия", "вакансии", "вакансий"]}>
               {filters.source_label ? ` · ${filters.source_label}` : ""}
               {picked.length > 0 ? ` · компаний в фильтре: ${picked.length}` : ""}
               {batch ? ` · считаю ${batch.done} из ${batch.total}` : ""}
-            </p>
+            </Count>
             <button
               type="button"
               className="btn btn-sm"

@@ -5,7 +5,7 @@ import { useAction, useApp } from "../app-context"
 import { MultiSelect } from "../components/MultiSelect"
 import { RunProgress, type RunState } from "../components/RunProgress"
 import { SortHeader } from "../components/SortHeader"
-import { Empty, ScoreBadge, Skeletons, plural } from "../components/common"
+import { Count, Empty, ScoreBadge, Skeletons, plural } from "../components/common"
 import type { ExploreBoard, ExploreCompany } from "../types"
 
 const STORAGE_KEY = "jobradar.explore.providers"
@@ -293,12 +293,10 @@ export function Explore({ onOpenJobs }: { onOpenJobs: (company: { company_key: s
             />
           </div>
           <div className="row">
-            <p className="muted">
-              {rows.length} {plural(rows.length, ["компания", "компании", "компаний"])}
-              {rows.length !== companies.length ? ` из ${companies.length}` : ""}
+            <Count shown={rows.length} total={companies.length} forms={["компания", "компании", "компаний"]}>
               {" · "}уже в источниках скрыты
               {addingAll ? ` · добавляю ${addingAll.done} из ${addingAll.total}` : ""}
-            </p>
+            </Count>
             <button
               type="button"
               className="btn btn-primary btn-sm"

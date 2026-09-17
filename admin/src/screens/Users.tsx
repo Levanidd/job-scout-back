@@ -2,7 +2,7 @@ import { useCallback, useState } from "react"
 
 import { api } from "../api"
 import { useAction, useApp, useLoader } from "../app-context"
-import { Empty, Skeletons } from "../components/common"
+import { Count, Empty, Skeletons } from "../components/common"
 import type { AuthUser, ManagedUser } from "../types"
 import { Profile } from "./Profile"
 
@@ -134,6 +134,10 @@ export function Users() {
           </button>
         </div>
       </section>
+
+      {users?.length ? (
+        <Count shown={users.length} forms={["пользователь", "пользователя", "пользователей"]} />
+      ) : null}
 
       {users === null ? (
         <Skeletons />

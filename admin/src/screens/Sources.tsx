@@ -4,7 +4,7 @@ import { api } from "../api"
 import { useAction, useApp, useLoader } from "../app-context"
 import { oneOf, text, usePersistentState } from "../persist"
 import { SortHeader } from "../components/SortHeader"
-import { Age, Empty, Field, Skeletons } from "../components/common"
+import { Age, Count, Empty, Field, Skeletons } from "../components/common"
 import type { DetectResult, Source, Tier } from "../types"
 
 const ATS_SUBDOMAINS = new Set(["jobs", "boards", "job-boards", "apply", "careers"])
@@ -461,9 +461,7 @@ export function Sources({ onOpenJobs }: { onOpenJobs: (source: Source) => void }
         <Empty title="Ничего не нашлось" hint="Сбросьте фильтры." />
       ) : (
         <>
-          <p className="muted">
-            {rows.length} из {sources.length}
-          </p>
+          <Count shown={rows.length} total={sources.length} forms={["источник", "источника", "источников"]} />
           <div className="table-wrap">
             <table className="table table-compact">
               <thead>

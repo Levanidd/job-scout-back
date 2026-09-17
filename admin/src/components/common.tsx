@@ -19,6 +19,30 @@ export function Skeletons({ count = 3 }: { count?: number }) {
   )
 }
 
+/**
+ * How many rows the table is showing right now, filters included. `total` is
+ * only worth passing where the unfiltered set is already on hand.
+ */
+export function Count({
+  shown,
+  total,
+  forms,
+  children,
+}: {
+  shown: number
+  total?: number
+  forms: [string, string, string]
+  children?: ReactNode
+}) {
+  return (
+    <p className="count">
+      {shown} {plural(shown, forms)}
+      {total !== undefined && total !== shown ? ` из ${total}` : ""}
+      {children}
+    </p>
+  )
+}
+
 export function ScoreBadge({ score, hint }: { score: number | null; hint?: string }) {
   if (score == null) {
     return (

@@ -1004,6 +1004,13 @@ a.mono:hover {
   font-size: 13px;
 }
 
+.count {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-tertiary);
+}
+
 .error-text {
   color: var(--negative);
   font-size: 13px;
