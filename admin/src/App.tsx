@@ -244,9 +244,15 @@ export default function App() {
           {tab === "resources" ? (
             <Resources onOpenCompanyJobs={openCompanyJobs} onOpenSourceJobs={openSourceJobs} />
           ) : null}
-          {tab === "jobs" ? <Jobs key={preset?.seq ?? "all"} preset={preset?.filters} /> : null}
+          {tab === "jobs" ? (
+            <Jobs key={preset?.seq ?? "all"} preset={preset?.filters} onOpenCompany={openCompanyJobs} />
+          ) : null}
           {tab === "applied" ? (
-            <Applied key={appliedPreset?.seq ?? "all"} preset={appliedPreset?.status} />
+            <Applied
+              key={appliedPreset?.seq ?? "all"}
+              preset={appliedPreset?.status}
+              onOpenCompany={openCompanyJobs}
+            />
           ) : null}
           {tab === "stats" ? <Stats onOpenApplied={openApplied} /> : null}
           {tab === "users" && me?.role === "master" ? <Users /> : null}

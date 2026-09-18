@@ -149,13 +149,16 @@ export function Guide() {
 
       <section className="card">
         <h3 className="card-title">4. Разобрать ленту</h3>
-        <p className="card-sub">«Вакансии». По умолчанию видно то, что прошло ваш префильтр, со score от 55.</p>
+        <p className="card-sub">
+          «Вакансии». По умолчанию видно то, что прошло ваш префильтр, со score от 55. Кнопка «Карточка» в конце
+          строки открывает вакансию целиком — с описанием, причиной оценки и заметками.
+        </p>
         <Shot
           legend={[
             "«Подался» — отметка уходит во вкладку «Подался» и в статистику",
             "«Смотрел» — чтобы отличать разобранное от нового",
             "«Позже» — отложить, не меняя статус вакансии",
-            "Клик по компании раскрывает карточку: причина оценки, зарплата, источник",
+            "Клик по компании — все её вакансии, какие у нас есть",
             "Score: насколько вакансия близка вашему профилю. Иконка рядом — пересчитать его",
           ]}
         >
@@ -204,6 +207,7 @@ export function Guide() {
         <Shot
           legend={[
             "Фильтр по этапу: все, подался, интервью, отказ",
+            "Клик по компании — все её вакансии, какие у нас есть",
             "Этап меняется прямо в строке — подсвечен текущий",
             "Заметки: с кем говорили и что дальше, их видите только вы",
           ]}
@@ -219,15 +223,17 @@ export function Guide() {
             </Hit>
             <div className="guide-source-row">
               <strong>Head of Product</strong>
-              <span className="cell-sub">Beispiel Bank</span>
               <Hit n={2}>
+                <span className="cell-sub">Beispiel Bank</span>
+              </Hit>
+              <Hit n={3}>
                 <span className="btn btn-primary btn-sm">Интервью</span>
               </Hit>
               <span className="btn btn-sm">Отказ</span>
             </div>
             <div className="guide-mini-card">
               <span className="guide-mini-title">Заметки</span>
-              <Hit n={3}>
+              <Hit n={4}>
                 <span className="guide-textarea">Отправила CV 3 марта, ждут ответ рекрутера…</span>
               </Hit>
             </div>

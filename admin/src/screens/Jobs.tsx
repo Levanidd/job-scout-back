@@ -5,9 +5,10 @@ import { useAction, useApp, useLoader } from "../app-context"
 import { usePersistentState } from "../persist"
 import { ConfirmDialog } from "../components/ConfirmDialog"
 import { RefreshIcon } from "../components/icons"
+import { JobCard } from "../components/JobCard"
 import { MultiSelect } from "../components/MultiSelect"
 import { SortHeader } from "../components/SortHeader"
-import { Age, Count, Empty, Flags, ScoreBadge, Skeletons, formatDate, formatSalary, plural } from "../components/common"
+import { Age, Count, Empty, Flags, ScoreBadge, Skeletons, formatSalary, plural } from "../components/common"
 import type { CompanyFacet, Job, JobStatus } from "../types"
 
 const STATUS_LABELS: Record<JobStatus, string> = {
@@ -85,7 +86,13 @@ function reviveFilters(raw: unknown): JobFilters | undefined {
   }
 }
 
-export function Jobs({ preset }: { preset?: JobFilters }) {
+export function Jobs({
+  preset,
+  onOpenCompany,
+}: {
+  preset?: JobFilters
+  onOpenCompany: (company: { company_key: string }) => void
+}) {
   const run = useAction()
   const { notify } = useApp()
   const [filters, setFilters] = usePersistentState<JobFilters>(
@@ -96,7 +103,7 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
   )
   const [jobs, setJobs] = useState<Job[] | null>(null)
   const [companies, setCompanies] = useState<CompanyFacet[]>([])
-  const [open, setOpen] = useState<string | null>(null)
+  const [card, setCard] = useState<Job | null>(null)
   const [scoring, setScoring] = useState<string | null>(null)
   const [batch, setBatch] = useState<{ done: number; total: number } | null>(null)
   const [pending, setPending] = useState<
@@ -165,6 +172,14 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
     setJobs(
       (prev) => prev?.map((item) => (item.id === id ? { ...item, ...next } : item)).filter(stillMatches) ?? null,
     )
+    setCard((prev) => (prev && prev.id === id ? { ...prev, ...next } : prev))
+  }
+
+  /** The list carries no description, so the card fills itself in on open. */
+  async function openCard(job: Job) {
+    setCard(job)
+    const result = await run(() => api.job(job.id))
+    if (result) setCard((prev) => (prev && prev.id === job.id ? result.job : prev))
   }
 
   async function setStatus(job: Job, next: JobStatus) {
@@ -279,6 +294,57 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
   const sort = filters.sort ?? "score"
   const dir = filters.dir ?? "desc"
   const addedMode = filters.added_from || customAdded ? "custom" : String(filters.added_days ?? "")
+
+  if (card) {
+    return (
+      <JobCard
+        job={card}
+        onBack={() => setCard(null)}
+        onPatch={(next) => patchJob(card.id, next)}
+        scoreExtra={
+          <button
+            type="button"
+            className="icon-btn"
+            title="Пересчитать score"
+            disabled={Boolean(scoring === card.id || batch)}
+            onClick={() => void rescore(card)}
+          >
+            <RefreshIcon className={scoring === card.id ? "is-spinning" : ""} />
+          </button>
+        }
+      >
+        {card.score_reason ? (
+          <p className="muted">
+            {card.score_reason === "prefilter"
+              ? "Отсеяна по названию: не прошла теги префильтра, в скоринг не попала"
+              : card.score_reason}
+          </p>
+        ) : null}
+        <Flags raw={card.flags} />
+        <div className="row-tight" style={{ flexWrap: "wrap" }}>
+          <span className="badge badge-neutral">{STATUS_LABELS[card.status]}</span>
+          {card.viewed_at ? <span className="badge badge-neutral">просмотрена</span> : null}
+          {card.later_at ? <span className="badge badge-accent">посмотреть позже</span> : null}
+          <span className="badge badge-neutral">{card.tier === "watchlist" ? "watchlist" : "discovery"}</span>
+          <span className="badge badge-neutral">{card.source_label}</span>
+        </div>
+        <div className="row">
+          <button className="btn btn-sm" onClick={() => onOpenCompany(card)}>
+            Все вакансии {card.company}
+          </button>
+          {ACTIONS.map((action) => (
+            <button
+              key={action.status}
+              className={`btn btn-sm ${card.status === action.status ? "btn-primary" : ""}`}
+              onClick={() => void setStatus(card, action.status)}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+      </JobCard>
+    )
+  }
 
   return (
     <>
@@ -567,9 +633,8 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
                         <button
                           type="button"
                           className="cell-link"
-                          title="Открыть карточку вакансии"
-                          aria-expanded={open === job.id}
-                          onClick={() => setOpen((prev) => (prev === job.id ? null : job.id))}
+                          title={`Все вакансии ${job.company}`}
+                          onClick={() => onOpenCompany(job)}
                         >
                           {job.company}
                         </button>
@@ -603,54 +668,11 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
                         <Age value={job.changed_at ?? job.first_seen_at} warnAfter={7} />
                       </td>
                       <td className="col-more">
-                        <button
-                          className="btn btn-ghost btn-sm"
-                          aria-expanded={open === job.id}
-                          onClick={() => setOpen((prev) => (prev === job.id ? null : job.id))}
-                        >
-                          {open === job.id ? "×" : "…"}
+                        <button className="btn btn-ghost btn-sm" onClick={() => void openCard(job)}>
+                          Карточка
                         </button>
                       </td>
                     </tr>
-
-                    {open === job.id ? (
-                      <tr className="row-details">
-                        <td colSpan={10}>
-                          {job.score_reason ? (
-                            <p className="muted">
-                              {job.score_reason === "prefilter"
-                                ? "Отсеяна по названию: не прошла теги префильтра, в скоринг не попала"
-                                : job.score_reason}
-                            </p>
-                          ) : null}
-                          <Flags raw={job.flags} />
-                          <div className="row-tight" style={{ flexWrap: "wrap" }}>
-                            <span className="badge badge-neutral">{STATUS_LABELS[job.status]}</span>
-                            {job.viewed_at ? <span className="badge badge-neutral">просмотрена</span> : null}
-                            {job.later_at ? <span className="badge badge-accent">посмотреть позже</span> : null}
-                            <span className="badge badge-neutral">
-                              {job.tier === "watchlist" ? "watchlist" : "discovery"}
-                            </span>
-                            <span className="badge badge-neutral">{job.source_label}</span>
-                            {pay ? <span className="badge badge-accent">{pay}</span> : null}
-                            <span className="badge badge-neutral">
-                              найдена {formatDate(job.first_seen_at)}
-                            </span>
-                          </div>
-                          <div className="row">
-                            {ACTIONS.map((action) => (
-                              <button
-                                key={action.status}
-                                className={`btn btn-sm ${job.status === action.status ? "btn-primary" : ""}`}
-                                onClick={() => void setStatus(job, action.status)}
-                              >
-                                {action.label}
-                              </button>
-                            ))}
-                          </div>
-                        </td>
-                      </tr>
-                    ) : null}
                   </Fragment>
                   )
                 })}

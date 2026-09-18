@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useState } from "react"
 
 import { api } from "../api"
 import { useAction, useLoader } from "../app-context"
 import { oneOf, usePersistentState } from "../persist"
-import { Age, Count, Empty, Field, ScoreBadge, Skeletons, formatDate, formatSalary } from "../components/common"
+import { JobCard } from "../components/JobCard"
+import { Age, Count, Empty, Field, ScoreBadge, Skeletons, formatSalary } from "../components/common"
 import type { Job, JobStatus } from "../types"
 
 function todayLocal(): string {
@@ -36,50 +37,6 @@ const PIPE_LABELS: Record<"applied" | "interview" | "rejected", string> = {
 function pipeLabel(status: JobStatus): string {
   if (status === "applied" || status === "interview" || status === "rejected") return PIPE_LABELS[status]
   return status
-}
-
-function Meta({ label, value }: { label: string; value: string | null }) {
-  return (
-    <div>
-      <span className="applied-meta-label">{label}</span>
-      <Age value={value} />
-      <div className="cell-sub">{formatDate(value)}</div>
-    </div>
-  )
-}
-
-function Notes({ job, onSaved }: { job: Job; onSaved: (notes: string) => void }) {
-  const run = useAction()
-  const [text, setText] = useState(job.notes ?? "")
-  const saved = job.notes ?? ""
-  const [busy, setBusy] = useState(false)
-
-  useEffect(() => {
-    setText(job.notes ?? "")
-  }, [job.id, job.notes])
-
-  async function save() {
-    setBusy(true)
-    const result = await run(() => api.saveJobNotes(job.id, text))
-    setBusy(false)
-    if (result) onSaved(result.notes ?? "")
-  }
-
-  return (
-    <>
-      <Field label="Заметки">
-        <textarea
-          className="textarea textarea-notes"
-          placeholder="С кем говорил, что отправил, следующие шаги…"
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-        />
-      </Field>
-      <button className="btn btn-sm" disabled={busy || text === saved} onClick={() => void save()}>
-        {busy ? "Сохраняю…" : "Сохранить заметку"}
-      </button>
-    </>
-  )
 }
 
 function ManualJobForm({ onCreated, onCancel }: { onCreated: (job: Job) => void; onCancel: () => void }) {
@@ -251,7 +208,13 @@ function ManualJobForm({ onCreated, onCancel }: { onCreated: (job: Job) => void;
   )
 }
 
-export function Applied({ preset }: { preset?: PipeFilter }) {
+export function Applied({
+  preset,
+  onOpenCompany,
+}: {
+  preset?: PipeFilter
+  onOpenCompany: (company: { company_key: string }) => void
+}) {
   const run = useAction()
   // A preset arrives from the Stats tab, where the user picked the bucket by
   // clicking a number — that pick should not become tomorrow's default view.
@@ -325,59 +288,22 @@ export function Applied({ preset }: { preset?: PipeFilter }) {
 
   if (open) {
     return (
-      <>
+      <JobCard job={open} onBack={() => setOpen(null)} onPatch={patchOpen}>
         <div className="row">
-          <button className="btn btn-ghost btn-sm" onClick={() => setOpen(null)}>
-            ← К списку
+          <button className="btn btn-sm" onClick={() => onOpenCompany(open)}>
+            Все вакансии {open.company}
           </button>
+          {PIPE_ACTIONS.map((action) => (
+            <button
+              key={action.status}
+              className={`btn btn-sm ${open.status === action.status ? "btn-primary" : ""}`}
+              onClick={() => void setPipeline(open, action.status)}
+            >
+              {action.label}
+            </button>
+          ))}
         </div>
-        <article className="card">
-          <div className="card-head">
-            <div>
-              <h3 className="card-title">
-                <a href={open.url} target="_blank" rel="noreferrer">
-                  {open.title}
-                </a>
-              </h3>
-              <p className="card-sub">
-                {open.company}
-                {open.location ? ` · ${open.location}` : ""}
-                {formatSalary(open.salary_min, open.salary_max, open.salary_currency)
-                  ? ` · ${formatSalary(open.salary_min, open.salary_max, open.salary_currency)}`
-                  : ""}
-              </p>
-            </div>
-            <ScoreBadge score={open.score} />
-          </div>
-
-          <div className="applied-meta">
-            <Meta label="Опубликована" value={open.posted_at} />
-            <Meta label="Добавлена" value={open.first_seen_at} />
-            <Meta label="Обновлена" value={open.changed_at ?? open.first_seen_at} />
-            <Meta label="Подался" value={open.applied_at} />
-          </div>
-
-          <div className="row">
-            {PIPE_ACTIONS.map((action) => (
-              <button
-                key={action.status}
-                className={`btn btn-sm ${open.status === action.status ? "btn-primary" : ""}`}
-                onClick={() => void setPipeline(open, action.status)}
-              >
-                {action.label}
-              </button>
-            ))}
-          </div>
-
-          {open.description ? (
-            <div className="job-description">{open.description}</div>
-          ) : (
-            <p className="muted">Описание не сохранилось — его не было в источнике или его отсекли до скоринга.</p>
-          )}
-
-          <Notes job={open} onSaved={(notes) => patchOpen({ notes })} />
-        </article>
-      </>
+      </JobCard>
     )
   }
 
@@ -441,7 +367,16 @@ export function Applied({ preset }: { preset?: PipeFilter }) {
                       <div className="cell-sub">{formatSalary(job.salary_min, job.salary_max, job.salary_currency)}</div>
                     ) : null}
                   </td>
-                  <td className="col-company">{job.company}</td>
+                  <td className="col-company">
+                    <button
+                      type="button"
+                      className="cell-link"
+                      title={`Все вакансии ${job.company}`}
+                      onClick={() => onOpenCompany(job)}
+                    >
+                      {job.company}
+                    </button>
+                  </td>
                   <td className="col-score">
                     <ScoreBadge score={job.score} />
                   </td>
