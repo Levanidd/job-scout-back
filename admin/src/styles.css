@@ -721,6 +721,19 @@ a:hover {
   text-decoration: underline;
 }
 
+/* A bare number gives no hint that it leads anywhere, so the one that opens a
+   filtered job list carries a dotted underline even at rest. */
+.cell-count {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-decoration: underline dotted var(--text-tertiary);
+  text-underline-offset: 3px;
+}
+
+.cell-count:hover {
+  text-decoration: underline solid currentColor;
+}
+
 .col-date {
   width: 120px;
   white-space: nowrap;

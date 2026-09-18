@@ -231,9 +231,8 @@ export function Discovery({ onOpenJobs }: { onOpenJobs: (company: DiscoveredComp
                       {company.jobs_open > 0 ? (
                         <button
                           type="button"
-                          className="th-sort"
-                          style={{ textTransform: "none", letterSpacing: 0, fontWeight: 600 }}
-                          title="Вакансии этой компании"
+                          className="cell-link cell-count"
+                          title={`Вакансии ${company.company}`}
                           onClick={() => onOpenJobs(company)}
                         >
                           {company.jobs_open}

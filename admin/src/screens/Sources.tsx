@@ -421,15 +421,18 @@ export function Sources({ onOpenJobs }: { onOpenJobs: (source: Source) => void }
                       )}
                     </td>
                     <td className="col-score">
-                      <button
-                        type="button"
-                        className="th-sort"
-                        style={{ textTransform: "none", letterSpacing: 0, fontWeight: 600 }}
-                        title="Вакансии этого источника"
-                        onClick={() => onOpenJobs(source)}
-                      >
-                        {source.active_jobs}
-                      </button>
+                      {source.active_jobs > 0 ? (
+                        <button
+                          type="button"
+                          className="cell-link cell-count"
+                          title={`Вакансии источника «${source.label}»`}
+                          onClick={() => onOpenJobs(source)}
+                        >
+                          {source.active_jobs}
+                        </button>
+                      ) : (
+                        0
+                      )}
                     </td>
                     <td className="col-date">
                       <Age value={source.last_run_at} warnAfter={7} />
