@@ -2,8 +2,19 @@ import { useCallback, useState } from "react"
 
 import { api } from "../api"
 import { useAction, useLoader } from "../app-context"
+import { oneOf, usePersistentState } from "../persist"
 import { Empty, Skeletons, plural } from "../components/common"
 import type { JobStats, StatsBucket } from "../types"
+import type { PipeFilter } from "./Applied"
+
+type PeriodId = "30" | "90" | "365" | "all"
+
+const PERIODS: Array<{ id: PeriodId; label: string }> = [
+  { id: "30", label: "30 дней" },
+  { id: "90", label: "3 месяца" },
+  { id: "365", label: "Год" },
+  { id: "all", label: "Всё время" },
+]
 
 function pct(part: number, whole: number): string {
   if (!whole) return "—"
@@ -28,18 +39,31 @@ function Kpi({
   value,
   hint,
   tone,
+  onOpen,
 }: {
   label: string
   value: number
   hint: string
   tone?: "accent" | "positive"
+  /** Set where the number stands for a list the user can go and look at. */
+  onOpen?: () => void
 }) {
+  const className = `card stat-card ${tone ? `stat-card-${tone}` : ""}`
+  if (!onOpen) {
+    return (
+      <article className={className}>
+        <span className="stat-label">{label}</span>
+        <strong className="stat-value">{value}</strong>
+        <span className="stat-hint">{hint}</span>
+      </article>
+    )
+  }
   return (
-    <article className={`card stat-card ${tone ? `stat-card-${tone}` : ""}`}>
+    <button type="button" className={`${className} stat-card-link`} title={`Открыть: ${label}`} onClick={onOpen}>
       <span className="stat-label">{label}</span>
       <strong className="stat-value">{value}</strong>
       <span className="stat-hint">{hint}</span>
-    </article>
+    </button>
   )
 }
 
@@ -147,28 +171,58 @@ function Chart({
   )
 }
 
-export function Stats() {
+export function Stats({ onOpenApplied }: { onOpenApplied: (status: PipeFilter) => void }) {
   const run = useAction()
   const [stats, setStats] = useState<JobStats | null>(null)
+  const [period, setPeriod] = usePersistentState<PeriodId>(
+    "stats.period",
+    "all",
+    oneOf("30", "90", "365", "all"),
+  )
+
+  const days = period === "all" ? undefined : Number(period)
 
   const load = useCallback(
     async (silent = false) => {
       if (!silent) setStats(null)
-      const result = await run(() => api.stats())
+      const result = await run(() => api.stats(days))
       if (result) setStats(result)
     },
-    [run],
+    [run, days],
   )
 
   useLoader(load)
 
-  if (stats === null) return <Skeletons count={4} />
+  const periodPicker = (
+    <div className="row stats-period">
+      {PERIODS.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          className={`btn btn-sm ${period === item.id ? "btn-primary" : "btn-ghost"}`}
+          onClick={() => setPeriod(item.id)}
+        >
+          {item.label}
+        </button>
+      ))}
+      <span className="muted stats-period-hint">Диаграммы ниже всегда за свои 12 недель и 12 месяцев</span>
+    </div>
+  )
+
+  if (stats === null)
+    return (
+      <>
+        {periodPicker}
+        <Skeletons count={4} />
+      </>
+    )
 
   const answered = stats.pipeline.interview + stats.pipeline.rejected
   const weekTotal = stats.weeks.reduce((sum, row) => sum + row.total, 0)
 
   return (
     <>
+      {periodPicker}
       <div className="stats-kpis">
         <Kpi
           label="Найдено"
@@ -190,6 +244,7 @@ export function Stats() {
               : `${pct(stats.applied, stats.found)} от найденных`
           }
           tone="positive"
+          onOpen={() => onOpenApplied("")}
         />
       </div>
 
@@ -218,17 +273,24 @@ export function Stats() {
           </div>
         </div>
         <div className="stats-kpis stats-kpis-pipeline">
-          <Kpi label="В работе" value={stats.pipeline.waiting} hint="ещё без интервью и отказа" />
+          <Kpi
+            label="В работе"
+            value={stats.pipeline.waiting}
+            hint="ещё без интервью и отказа"
+            onOpen={() => onOpenApplied("applied")}
+          />
           <Kpi
             label="Интервью"
             value={stats.pipeline.interview}
             hint={stats.applied ? `${pct(stats.pipeline.interview, stats.applied)} от откликов` : "появятся после откликов"}
             tone="positive"
+            onOpen={() => onOpenApplied("interview")}
           />
           <Kpi
             label="Отказ"
             value={stats.pipeline.rejected}
             hint={stats.applied ? `${pct(stats.pipeline.rejected, stats.applied)} от откликов` : "появятся после откликов"}
+            onOpen={() => onOpenApplied("rejected")}
           />
         </div>
       </article>

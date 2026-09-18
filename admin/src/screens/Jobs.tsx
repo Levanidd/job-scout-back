@@ -4,6 +4,7 @@ import { api, type JobFilters, type JobSort } from "../api"
 import { useAction, useApp, useLoader } from "../app-context"
 import { usePersistentState } from "../persist"
 import { ConfirmDialog } from "../components/ConfirmDialog"
+import { RefreshIcon } from "../components/icons"
 import { MultiSelect } from "../components/MultiSelect"
 import { SortHeader } from "../components/SortHeader"
 import { Age, Count, Empty, Flags, ScoreBadge, Skeletons, formatDate, formatSalary, plural } from "../components/common"
@@ -86,7 +87,7 @@ function reviveFilters(raw: unknown): JobFilters | undefined {
 
 export function Jobs({ preset }: { preset?: JobFilters }) {
   const run = useAction()
-  const { refresh, notify } = useApp()
+  const { notify } = useApp()
   const [filters, setFilters] = usePersistentState<JobFilters>(
     "jobs.filters",
     { ...DEFAULT_FILTERS, ...preset },
@@ -432,9 +433,6 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
           selected={picked}
           onChange={(values) => setFilters((prev) => ({ ...prev, companies: values.length ? values : undefined }))}
         />
-        <button className="btn btn-ghost btn-sm" onClick={() => refresh()}>
-          Обновить
-        </button>
       </div>
 
       {jobs === null ? (
@@ -564,21 +562,35 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
                           {job.location ? <span>{job.location}</span> : null}
                           {pay ? <span>{pay}</span> : null}
                         </div>
+                      </td>
+                      <td className="col-company">
                         <button
                           type="button"
-                          className="btn btn-ghost btn-sm"
-                          disabled={Boolean(scoring === job.id || batch)}
-                          onClick={() => void rescore(job)}
+                          className="cell-link"
+                          title="Открыть карточку вакансии"
+                          aria-expanded={open === job.id}
+                          onClick={() => setOpen((prev) => (prev === job.id ? null : job.id))}
                         >
-                          {scoring === job.id ? "Считаю…" : "Пересчитать score"}
+                          {job.company}
                         </button>
                       </td>
-                      <td className="col-company">{job.company}</td>
                       <td className="col-score">
-                        <ScoreBadge
-                          score={job.status === "off_profile" ? null : job.score}
-                          hint="Не оценивалась: название не подошло под профиль"
-                        />
+                        <div className="score-cell">
+                          <ScoreBadge
+                            score={job.status === "off_profile" ? null : job.score}
+                            hint="Не оценивалась: название не подошло под профиль"
+                          />
+                          <button
+                            type="button"
+                            className="icon-btn"
+                            title="Пересчитать score"
+                            aria-label={`Пересчитать score: ${job.title}`}
+                            disabled={Boolean(scoring === job.id || batch)}
+                            onClick={() => void rescore(job)}
+                          >
+                            <RefreshIcon className={scoring === job.id ? "is-spinning" : ""} />
+                          </button>
+                        </div>
                       </td>
                       <td className="col-date">
                         <Age value={job.posted_at ?? job.first_seen_at} />
@@ -626,13 +638,6 @@ export function Jobs({ preset }: { preset?: JobFilters }) {
                             </span>
                           </div>
                           <div className="row">
-                            <button
-                              className="btn btn-primary btn-sm"
-                              disabled={Boolean(scoring === job.id || batch)}
-                              onClick={() => void rescore(job)}
-                            >
-                              {scoring === job.id ? "Считаю…" : "Пересчитать score"}
-                            </button>
                             {ACTIONS.map((action) => (
                               <button
                                 key={action.status}

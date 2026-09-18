@@ -4,8 +4,8 @@ import { api } from "../api"
 import { useAction, useApp, useLoader } from "../app-context"
 import { oneOf, text, usePersistentState } from "../persist"
 import { SortHeader } from "../components/SortHeader"
-import { Age, Count, Empty, Field, Skeletons } from "../components/common"
-import type { DetectResult, Source, Tier } from "../types"
+import { Age, Count, Empty, Skeletons } from "../components/common"
+import type { Source, Tier } from "../types"
 
 const ATS_SUBDOMAINS = new Set(["jobs", "boards", "job-boards", "apply", "careers"])
 
@@ -64,8 +64,6 @@ function prettify(slug: string): string {
 function labelFor(raw: string, token: string | null): string {
   return token && SLUG.test(token) ? prettify(token) : labelFromUrl(raw)
 }
-
-type Pending = DetectResult & { url: string; label: string; tier: Tier }
 
 type KindFilter = "" | "company" | "query"
 type TierFilter = "" | Tier
@@ -138,9 +136,6 @@ export function Sources({ onOpenJobs }: { onOpenJobs: (source: Source) => void }
   const { me, notify, sourcesTick, runningSourceId } = useApp()
   const master = me?.role === "master"
   const [sources, setSources] = useState<Source[] | null>(null)
-  const [url, setUrl] = useState("")
-  const [detecting, setDetecting] = useState(false)
-  const [pending, setPending] = useState<Pending | null>(null)
   const [bulk, setBulk] = useState("")
   const [bulkBusy, setBulkBusy] = useState(false)
   const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number; current: string } | null>(null)
@@ -190,42 +185,6 @@ export function Sources({ onOpenJobs }: { onOpenJobs: (source: Source) => void }
       })
       .sort((a, b) => compare(a, b, sort, dir))
   }, [sources, query, kind, tier, enabled, status, provider, sort, dir])
-
-  async function detect() {
-    if (!url.trim()) return
-    setDetecting(true)
-    setPending(null)
-    const result = await run(() => api.detect(url.trim()))
-    setDetecting(false)
-    if (!result) return
-    if (!result.ats || !result.token) {
-      notify("ATS не определился. Компанию покроют query-источники.", "error")
-      return
-    }
-    setPending({ ...result, url: url.trim(), label: labelFor(url, result.token), tier: "watchlist" })
-  }
-
-  async function confirmAdd() {
-    if (!pending?.ats || !pending.token) return
-    const result = await run(
-      () =>
-        api.createSource({
-          kind: "company",
-          tier: pending.tier,
-          label: pending.label.trim() || pending.url,
-          provider: pending.ats as string,
-          token: pending.token as string,
-          careers_url: pending.url,
-        }),
-      `${pending.label} добавлена`,
-    )
-    if (!result) return
-    setPending(null)
-    setUrl("")
-    setSort("added")
-    setDir("desc")
-    await load(true)
-  }
 
   async function runBulk() {
     const parsed = parseBulkUrls(bulk)
@@ -323,78 +282,15 @@ export function Sources({ onOpenJobs }: { onOpenJobs: (source: Source) => void }
     <>
       <section className="card">
         <h3 className="card-title">Добавить компанию</h3>
-        <p className="card-sub">Вставьте ссылку на карьерную страницу — определим ATS и проверим, что вакансии читаются.</p>
-        <div className="row">
-          <input
-            className="input grow"
-            placeholder="https://boards.greenhouse.io/company"
-            value={url}
-            onChange={(event) => setUrl(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void detect()
-            }}
-          />
-          <button className="btn btn-primary" disabled={detecting || !url.trim()} onClick={() => void detect()}>
-            {detecting ? "Проверяю…" : "Проверить"}
-          </button>
-        </div>
-
-        {pending ? (
-          <div className="card" style={{ background: "var(--bg-elevated)" }}>
-            <div className="row-tight" style={{ flexWrap: "wrap" }}>
-              <span className="badge badge-accent">{pending.ats}</span>
-              <span className="badge badge-positive">{pending.jobs_found} вакансий</span>
-              {pending.guessed ? <span className="badge">угадано по домену</span> : null}
-            </div>
-            {pending.guessed ? (
-              <p className="muted">
-                Ссылки на ATS на странице не было, доска найдена по имени домена ({pending.token}). Проверьте, что
-                вакансии ниже — действительно этой компании.
-              </p>
-            ) : null}
-            {pending.sample.length > 0 ? (
-              <ul className="muted" style={{ margin: 0, paddingLeft: 18 }}>
-                {pending.sample.map((title) => (
-                  <li key={title}>{title}</li>
-                ))}
-              </ul>
-            ) : null}
-            <Field label="Название">
-              <input
-                className="input"
-                value={pending.label}
-                onChange={(event) => setPending({ ...pending, label: event.target.value })}
-              />
-            </Field>
-            <Field label="Уровень">
-              <select
-                className="select"
-                value={pending.tier}
-                onChange={(event) => setPending({ ...pending, tier: event.target.value as Tier })}
-              >
-                <option value="watchlist">Watchlist — порог уведомления 55</option>
-                <option value="discovery">Discovery — порог 70</option>
-              </select>
-            </Field>
-            <div className="row">
-              <button className="btn btn-primary btn-sm" onClick={() => void confirmAdd()}>
-                Добавить
-              </button>
-              <button className="btn btn-ghost btn-sm" onClick={() => setPending(null)}>
-                Отмена
-              </button>
-            </div>
-          </div>
-        ) : null}
-      </section>
-
-      <section className="card">
-        <h3 className="card-title">Пачкой</h3>
-        <p className="card-sub">По ссылке на строку. Каждая проверяется отдельно — если ATS не нашёлся, ссылка останется в поле.</p>
+        <p className="card-sub">
+          Ссылка на карьерную страницу — одна или сразу несколько, по одной на строку. Для каждой определим ATS
+          и проверим, что вакансии читаются. Если ATS не нашёлся, ссылка останется в поле. Название и уровень
+          потом можно поправить в таблице.
+        </p>
         <textarea
           className="textarea"
-          style={{ minHeight: 120 }}
-          placeholder={"https://jobs.lever.co/company\nhttps://company.recruitee.com"}
+          style={{ minHeight: 96 }}
+          placeholder={"https://boards.greenhouse.io/company\nhttps://jobs.lever.co/company"}
           value={bulk}
           onChange={(event) => setBulk(event.target.value)}
           disabled={bulkBusy}
@@ -407,7 +303,7 @@ export function Sources({ onOpenJobs }: { onOpenJobs: (source: Source) => void }
         ) : null}
         <div className="row">
           <button className="btn btn-primary btn-sm" disabled={bulkBusy || !bulk.trim()} onClick={() => void runBulk()}>
-            {bulkBusy ? "Проверяю…" : "Проверить и добавить"}
+            {bulkBusy ? "Проверяю…" : "Добавить"}
           </button>
         </div>
       </section>
@@ -448,9 +344,6 @@ export function Sources({ onOpenJobs }: { onOpenJobs: (source: Source) => void }
             </option>
           ))}
         </select>
-        <button className="btn btn-ghost btn-sm" onClick={() => void load(true)}>
-          Обновить
-        </button>
       </div>
 
       {sources === null ? (
@@ -551,10 +444,7 @@ export function Sources({ onOpenJobs }: { onOpenJobs: (source: Source) => void }
                       )}
                     </td>
                     <td className="col-actions">
-                      <div className="row-tight">
-                        <button className="btn btn-sm" onClick={() => onOpenJobs(source)}>
-                          Вакансии
-                        </button>
+                      <div className="row-tight row-btns">
                         <button className="btn btn-sm" onClick={() => void runOne(source)}>
                           Прогнать
                         </button>

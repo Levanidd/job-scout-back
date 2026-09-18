@@ -102,7 +102,7 @@ deploy command `npx wrangler deploy`. Отдельно катить руками
 | PATCH | `/api/jobs/:id` | `{status}`, `{notes}`, `{viewed}` или `{later}` — только свои |
 | GET | `/api/applied` | отклики; `?status=applied\|interview\|rejected` |
 | POST | `/api/applied` | вакансия, добавленная руками, без ATS |
-| GET | `/api/stats` | воронка найдено/просмотрено/подался, разбивка откликов, ряды по неделям и месяцам |
+| GET | `/api/stats` | воронка найдено/просмотрено/подался, разбивка откликов, ряды по неделям и месяцам; `?days=N` ограничивает воронку и разбивку периодом, ряды остаются за свои 12 недель и 12 месяцев |
 | GET/PUT | `/api/profile` | текст для скоринга, keep/drop-теги и чёрный список компаний |
 | POST | `/api/profile/rescore` | обнулить score и пересчитать |
 | PUT | `/api/settings` | модель Gemini — только мастер |

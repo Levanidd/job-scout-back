@@ -4,7 +4,7 @@ import { api, forgetToken, getToken, UnauthorizedError, type JobFilters } from "
 import { AppProvider, type ToastKind } from "./app-context"
 import { BookIcon, BriefcaseIcon, ChartIcon, CheckIcon, PeopleIcon, PersonIcon, StackIcon } from "./components/icons"
 import { RunProgress, type RunState } from "./components/RunProgress"
-import { Applied } from "./screens/Applied"
+import { Applied, type PipeFilter } from "./screens/Applied"
 import { Guide } from "./screens/Guide"
 import { Jobs } from "./screens/Jobs"
 import { Profile } from "./screens/Profile"
@@ -57,6 +57,8 @@ export default function App() {
   // Opening a company from Discovery remounts the job list with its own
   // filters; picking the tab by hand always starts from the default view.
   const [preset, setPreset] = useState<{ filters: JobFilters; seq: number } | null>(null)
+  // Same idea for the applied list, which the Stats tab opens on one bucket.
+  const [appliedPreset, setAppliedPreset] = useState<{ status: PipeFilter; seq: number } | null>(null)
   const [toast, setToast] = useState<Toast | null>(null)
   const [running, setRunning] = useState(false)
   const [run, setRun] = useState<RunState | null>(null)
@@ -150,6 +152,11 @@ export default function App() {
     setTab("jobs")
   }
 
+  function openApplied(status: PipeFilter) {
+    setAppliedPreset((prev) => ({ status, seq: (prev?.seq ?? 0) + 1 }))
+    setTab("applied")
+  }
+
   function openSourceJobs(source: { id: number; label: string }) {
     setPreset((prev) => ({
       filters: { source_id: source.id, source_label: source.label, min_score: 0, status: "any" },
@@ -221,6 +228,7 @@ export default function App() {
                 aria-current={tab === item.id ? "page" : undefined}
                 onClick={() => {
                   if (item.id === "jobs") setPreset(null)
+                  if (item.id === "applied") setAppliedPreset(null)
                   setTab(item.id)
                 }}
               >
@@ -237,8 +245,10 @@ export default function App() {
             <Resources onOpenCompanyJobs={openCompanyJobs} onOpenSourceJobs={openSourceJobs} />
           ) : null}
           {tab === "jobs" ? <Jobs key={preset?.seq ?? "all"} preset={preset?.filters} /> : null}
-          {tab === "applied" ? <Applied /> : null}
-          {tab === "stats" ? <Stats /> : null}
+          {tab === "applied" ? (
+            <Applied key={appliedPreset?.seq ?? "all"} preset={appliedPreset?.status} />
+          ) : null}
+          {tab === "stats" ? <Stats onOpenApplied={openApplied} /> : null}
           {tab === "users" && me?.role === "master" ? <Users /> : null}
           {tab === "profile" ? <Profile /> : null}
           {tab === "guide" ? <Guide /> : null}

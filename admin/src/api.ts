@@ -213,8 +213,8 @@ export const api = {
     return request(`/applied${query}`)
   },
 
-  stats(): Promise<JobStats> {
-    return request("/stats")
+  stats(days?: number): Promise<JobStats> {
+    return request(days ? `/stats?days=${days}` : "/stats")
   },
 
   createApplied(body: {

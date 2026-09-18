@@ -439,6 +439,22 @@ a:hover {
   gap: 8px;
 }
 
+/* A filter row reads as a row only if every control is the same height, so the
+   selects and inputs here drop their padding-driven height for a fixed one. */
+.filters .input,
+.filters .select,
+.filters .btn {
+  height: 40px;
+  min-height: 40px;
+  padding: 0 12px;
+}
+
+/* Table actions keep one width whatever the word inside is, so the column does
+   not jitter from row to row. */
+.row-btns .btn {
+  min-width: 88px;
+}
+
 .check-inline {
   display: flex;
   align-items: center;
@@ -486,6 +502,13 @@ a:hover {
 .badge-accent {
   background: var(--accent-dim);
   color: var(--accent);
+}
+
+/* Matches .score and .btn-sm so a status, a score and a button in the same row
+   read as one line of controls. */
+.badge-cell {
+  min-height: 32px;
+  padding: 0 10px;
 }
 
 .score {
@@ -630,8 +653,72 @@ a:hover {
   color: var(--text-secondary);
 }
 
+/* Wide enough for the score plus the recount icon standing next to it. */
 .col-score {
-  width: 72px;
+  width: 112px;
+}
+
+.score-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.icon-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.is-spinning {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* A cell that opens something, styled as text rather than as a button. */
+.cell-link {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cell-link:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
 }
 
 .col-date {
@@ -682,7 +769,7 @@ a:hover {
   }
 
   .col-score {
-    width: 56px;
+    width: 92px;
   }
 
   .col-date {
@@ -1148,6 +1235,33 @@ a.mono:hover {
   justify-content: flex-start;
 }
 
+/* The number stands for a list, so the whole card is the way into it. */
+.stat-card-link {
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition:
+    transform 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.stat-card-link:hover {
+  border-color: var(--border-strong);
+}
+
+.stat-card-link:active {
+  transform: scale(0.99);
+}
+
+.stats-period {
+  align-items: center;
+}
+
+.stats-period-hint {
+  font-size: 12px;
+}
+
 .stat-card-accent {
   box-shadow: inset 0 0 0 1px rgba(147, 92, 255, 0.25);
 }
@@ -1373,14 +1487,19 @@ a.mono:hover {
   gap: 12px;
 }
 
+/* A wide mock scrolls sideways on a phone exactly as the real tables do, so the
+   frame itself stays interactive — only the fake controls inside are inert. */
 .guide-shot {
   overflow-x: auto;
   padding: 18px 16px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
   border-radius: 16px;
-  pointer-events: none;
   user-select: none;
+}
+
+.guide-shot > * {
+  pointer-events: none;
 }
 
 /* Callout colours never reuse the app accent, otherwise a ring around a
@@ -1407,6 +1526,12 @@ a.mono:hover {
   --hit: #ff9f0a;
   --hit-glow: rgba(255, 159, 10, 0.2);
   --hit-ink: #1c1200;
+}
+
+.tone-sky {
+  --hit: #4ab8ff;
+  --hit-glow: rgba(74, 184, 255, 0.2);
+  --hit-ink: #04182b;
 }
 
 .guide-hit {
@@ -1572,7 +1697,7 @@ a.mono:hover {
 }
 
 .guide-table {
-  min-width: 540px;
+  min-width: 520px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1581,7 +1706,7 @@ a.mono:hover {
 .guide-thead,
 .guide-trow {
   display: grid;
-  grid-template-columns: 68px 68px 60px minmax(160px, 1fr) 64px;
+  grid-template-columns: 60px 60px 52px minmax(140px, 1fr) 100px;
   gap: 12px;
   align-items: center;
 }

@@ -298,6 +298,41 @@ describe("stats", () => {
     expect(res.body.months.reduce((sum: number, row: { total: number }) => sum + row.total, 0)).toBe(3)
   })
 
+  it("keeps only what happened inside the asked-for period", async () => {
+    const id = await seedJob()
+    await call(`/api/jobs/${id}`, { method: "PATCH", body: JSON.stringify({ viewed: true }) })
+    await call(`/api/jobs/${id}`, { method: "PATCH", body: JSON.stringify({ status: "applied" }) })
+
+    await env.DB.prepare(
+      `INSERT INTO jobs (id, source_id, external_id, company, company_key, title, url, status, first_seen_at, last_seen_at)
+       SELECT 'j-old', source_id, '9', company, company_key, 'Old PM', 'https://acme.example/9',
+              'new', datetime('now', '-100 days'), datetime('now') FROM jobs LIMIT 1`,
+    ).run()
+    await env.DB.prepare(
+      `INSERT INTO user_jobs (user_id, job_id, status, viewed_at, applied_at)
+       VALUES (1, 'j-old', 'rejected', datetime('now', '-100 days'), datetime('now', '-100 days'))`,
+    ).run()
+
+    expect((await call("/api/stats")).body).toMatchObject({
+      found: 2,
+      viewed: 2,
+      applied: 2,
+      pipeline: { waiting: 1, rejected: 1 },
+    })
+
+    const recent = await call("/api/stats?days=30")
+    expect(recent.body).toMatchObject({
+      found: 1,
+      open: 1,
+      viewed: 1,
+      applied: 1,
+      pipeline: { waiting: 1, interview: 0, rejected: 0 },
+    })
+    expect(recent.body.companies).toEqual([{ company_key: "acme", company: "Acme GmbH", n: 1 }])
+    // The charts carry their own windows, so a period does not trim them.
+    expect(recent.body.weeks).toHaveLength(12)
+  })
+
   it("drops blacklisted companies from the funnel", async () => {
     await seedJob()
     await call("/api/profile", {

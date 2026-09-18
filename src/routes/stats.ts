@@ -106,6 +106,13 @@ const PIPELINE_BREAKDOWN = `
   SUM(CASE WHEN uj.status = 'rejected' THEN 1 ELSE 0 END) AS rejected,
   SUM(CASE WHEN uj.status NOT IN ('interview', 'rejected') THEN 1 ELSE 0 END) AS applied`
 
+/** `days` back from now, as the ISO string the timestamp columns are stored in. */
+export function periodStart(raw: string | undefined, now = new Date()): string | null {
+  const days = Number(raw)
+  if (!Number.isFinite(days) || days <= 0) return null
+  return new Date(now.getTime() - days * 86_400_000).toISOString()
+}
+
 stats.get("/api/stats", async (c) => {
   const userId = currentUser(c).id
   const blocked = await excludeBlockedCompaniesForUser(c.env, userId, "j.company_key")
@@ -113,35 +120,46 @@ stats.get("/api/stats", async (c) => {
   const binds = [userId, ...blocked.binds]
   const join = `FROM jobs j LEFT JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = ?`
 
+  // A period narrows each number to the events that fall inside it, and every
+  // number has its own event: a job counts as found when we first saw it, as
+  // viewed when it was viewed, as an application when it was sent. The two
+  // charts keep their own fixed windows — that is what they are for.
+  const since = periodStart(c.req.query("days"))
+  const found = since ? "j.first_seen_at >= ?" : "1"
+  const acted = (column: string) => (since ? `uj.${column} >= ?` : `uj.${column} IS NOT NULL`)
+  // These placeholders sit in the SELECT list, ahead of the one the join binds.
+  const totalsBinds = since ? [since, since, since, since, since, ...binds] : binds
+  const appliedBinds = since ? [userId, since, ...blocked.binds] : binds
+
   const [totals, pipeline, companies, weeks, months] = await c.env.DB.batch<
     TotalsRow | PipelineRow | CompanyRow | Bucket
   >([
     c.env.DB.prepare(
       `SELECT
-         COUNT(*) AS found,
-         SUM(CASE WHEN j.closed_at IS NULL THEN 1 ELSE 0 END) AS open,
-         SUM(CASE WHEN uj.viewed_at IS NOT NULL THEN 1 ELSE 0 END) AS viewed,
-         SUM(CASE WHEN uj.later_at IS NOT NULL THEN 1 ELSE 0 END) AS later,
-         SUM(CASE WHEN uj.applied_at IS NOT NULL THEN 1 ELSE 0 END) AS applied
+         SUM(CASE WHEN ${found} THEN 1 ELSE 0 END) AS found,
+         SUM(CASE WHEN ${found} AND j.closed_at IS NULL THEN 1 ELSE 0 END) AS open,
+         SUM(CASE WHEN ${acted("viewed_at")} THEN 1 ELSE 0 END) AS viewed,
+         SUM(CASE WHEN ${acted("later_at")} THEN 1 ELSE 0 END) AS later,
+         SUM(CASE WHEN ${acted("applied_at")} THEN 1 ELSE 0 END) AS applied
        ${join}
        WHERE ${where}`,
-    ).bind(...binds),
+    ).bind(...totalsBinds),
     c.env.DB.prepare(
       `SELECT
          SUM(CASE WHEN uj.status = 'interview' THEN 1 ELSE 0 END) AS interview,
          SUM(CASE WHEN uj.status = 'rejected' THEN 1 ELSE 0 END) AS rejected,
          SUM(CASE WHEN uj.status NOT IN ('interview', 'rejected') THEN 1 ELSE 0 END) AS waiting
        ${join}
-       WHERE uj.applied_at IS NOT NULL AND ${where}`,
-    ).bind(...binds),
+       WHERE ${acted("applied_at")} AND ${where}`,
+    ).bind(...appliedBinds),
     c.env.DB.prepare(
       `SELECT j.company_key, MIN(j.company) AS company, COUNT(*) AS n
        ${join}
-       WHERE uj.applied_at IS NOT NULL AND ${where}
+       WHERE ${acted("applied_at")} AND ${where}
        GROUP BY j.company_key
        ORDER BY n DESC, company COLLATE NOCASE
        LIMIT 8`,
-    ).bind(...binds),
+    ).bind(...appliedBinds),
     c.env.DB.prepare(
       `SELECT
          date(uj.applied_at, '-' || ((CAST(strftime('%w', uj.applied_at) AS INTEGER) + 6) % 7) || ' days') AS start,

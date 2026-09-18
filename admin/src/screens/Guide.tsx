@@ -1,11 +1,13 @@
 import type { ReactNode } from "react"
 
+import { RefreshIcon } from "../components/icons"
+
 /**
  * Callout colours are deliberately none of the app's own: the buttons being
  * pointed at are violet, so a violet ring around a violet button is invisible.
  * Position decides the colour, so the ring and its legend line always match.
  */
-const TONES = ["lime", "cyan", "pink", "amber"]
+const TONES = ["lime", "cyan", "pink", "amber", "sky"]
 
 function tone(n: number): string {
   return `tone-${TONES[(n - 1) % TONES.length]}`
@@ -115,8 +117,8 @@ export function Guide() {
         <p className="card-sub">«Ресурсы» → «Источники». Доска, которую вы добавили, появляется у всех.</p>
         <Shot
           legend={[
-            "Ссылка на карьерную страницу — ATS определится сам",
-            "«Проверить»: покажет пример вакансий, после этого подтвердите добавление",
+            "Ссылки на карьерные страницы — одна или сразу несколько, по одной на строку. ATS определится сам",
+            "«Добавить»: проверит каждую ссылку и подключит доску. Что не опознано — останется в поле",
             "«Прогнать» на строке — обойти только эту доску, не запуская весь цикл",
           ]}
         >
@@ -126,18 +128,17 @@ export function Guide() {
               <span className="guide-pill">Исследовать</span>
               <span className="guide-pill is-on">Источники</span>
             </div>
+            <Hit n={1}>
+              <span className="guide-textarea">https://jobs.lever.co/company</span>
+            </Hit>
             <div className="guide-row">
-              <Hit n={1}>
-                <span className="guide-fake-input">https://jobs.lever.co/company</span>
-              </Hit>
               <Hit n={2}>
-                <span className="btn btn-primary btn-sm">Проверить</span>
+                <span className="btn btn-primary btn-sm">Добавить</span>
               </Hit>
             </div>
             <div className="guide-source-row">
               <strong>Acme</strong>
               <span className="badge badge-neutral">12 вакансий</span>
-              <span className="btn btn-sm">Вакансии</span>
               <Hit n={3}>
                 <span className="btn btn-sm">Прогнать</span>
               </Hit>
@@ -154,7 +155,8 @@ export function Guide() {
             "«Подался» — отметка уходит во вкладку «Подался» и в статистику",
             "«Смотрел» — чтобы отличать разобранное от нового",
             "«Позже» — отложить, не меняя статус вакансии",
-            "Score: насколько вакансия близка вашему профилю",
+            "Клик по компании раскрывает карточку: причина оценки, зарплата, источник",
+            "Score: насколько вакансия близка вашему профилю. Иконка рядом — пересчитать его",
           ]}
         >
           <div className="guide-table">
@@ -177,10 +179,17 @@ export function Guide() {
               </Hit>
               <span className="guide-cell">
                 <span className="guide-link">Senior Product Manager</span>
-                <span className="cell-sub">Acme · Berlin</span>
+                <Hit n={4}>
+                  <span className="cell-sub">Acme · Berlin</span>
+                </Hit>
               </span>
-              <Hit n={4}>
-                <span className="badge badge-positive">82</span>
+              <Hit n={5}>
+                <span className="score-cell">
+                  <span className="badge badge-positive">82</span>
+                  <span className="icon-btn">
+                    <RefreshIcon />
+                  </span>
+                </span>
               </Hit>
             </div>
           </div>

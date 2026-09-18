@@ -60,7 +60,7 @@ function compare(a: DiscoveredCompany, b: DiscoveredCompany, sort: SortKey, dir:
 
 export function Discovery({ onOpenJobs }: { onOpenJobs: (company: DiscoveredCompany) => void }) {
   const run = useAction()
-  const { notify, refresh } = useApp()
+  const { notify } = useApp()
   const [companies, setCompanies] = useState<DiscoveredCompany[] | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [query, setQuery] = usePersistentState("discovery.query", "", text)
@@ -187,9 +187,6 @@ export function Discovery({ onOpenJobs }: { onOpenJobs: (company: DiscoveredComp
           <option value="open">есть открытые</option>
           <option value="none">без открытых</option>
         </select>
-        <button className="btn btn-ghost btn-sm" onClick={() => refresh()}>
-          Обновить
-        </button>
       </div>
 
       {companies === null ? (

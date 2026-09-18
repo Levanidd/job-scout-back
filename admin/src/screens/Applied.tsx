@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 
 import { api } from "../api"
-import { useAction, useApp, useLoader } from "../app-context"
+import { useAction, useLoader } from "../app-context"
 import { oneOf, usePersistentState } from "../persist"
 import { Age, Count, Empty, Field, ScoreBadge, Skeletons, formatDate, formatSalary } from "../components/common"
 import type { Job, JobStatus } from "../types"
@@ -12,7 +12,9 @@ function todayLocal(): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
-const PIPE: Array<{ id: "" | "applied" | "interview" | "rejected"; label: string }> = [
+export type PipeFilter = "" | "applied" | "interview" | "rejected"
+
+const PIPE: Array<{ id: PipeFilter; label: string }> = [
   { id: "", label: "Все" },
   { id: "applied", label: "Подался" },
   { id: "interview", label: "Интервью" },
@@ -249,13 +251,15 @@ function ManualJobForm({ onCreated, onCancel }: { onCreated: (job: Job) => void;
   )
 }
 
-export function Applied() {
+export function Applied({ preset }: { preset?: PipeFilter }) {
   const run = useAction()
-  const { refresh } = useApp()
-  const [status, setStatus] = usePersistentState(
+  // A preset arrives from the Stats tab, where the user picked the bucket by
+  // clicking a number — that pick should not become tomorrow's default view.
+  const [status, setStatus] = usePersistentState<PipeFilter>(
     "applied.status",
-    "",
+    preset ?? "",
     oneOf("", "applied", "interview", "rejected"),
+    { store: !preset },
   )
   const [jobs, setJobs] = useState<Job[] | null>(null)
   const [open, setOpen] = useState<Job | null>(null)
@@ -392,9 +396,6 @@ export function Applied() {
         <button className="btn btn-primary btn-sm" onClick={() => setComposing(true)}>
           Добавить вакансию
         </button>
-        <button className="btn btn-ghost btn-sm" onClick={() => refresh()}>
-          Обновить
-        </button>
       </div>
 
       {jobs?.length ? <Count shown={jobs.length} forms={["отклик", "отклика", "откликов"]} /> : null}
@@ -457,7 +458,7 @@ export function Applied() {
                     <Age value={job.applied_at} warnAfter={14} />
                   </td>
                   <td>
-                    <span className="badge badge-neutral">{pipeLabel(job.status)}</span>
+                    <span className="badge badge-neutral badge-cell">{pipeLabel(job.status)}</span>
                   </td>
                   <td className="col-more">
                     <button className="btn btn-ghost btn-sm" onClick={() => void openCard(job)}>
