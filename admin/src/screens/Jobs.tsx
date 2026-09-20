@@ -48,11 +48,10 @@ const DEFAULT_DIR: Record<JobSort, "asc" | "desc"> = {
   added: "desc",
 }
 
-const DEFAULT_FILTERS: JobFilters = { min_score: 55, sort: "score", dir: "desc" }
-
-type MarkFilter = "" | "applied" | "later" | "viewed"
+type MarkFilter = "new" | "" | "applied" | "later" | "viewed"
 
 function markFlags(mark: MarkFilter): Pick<JobFilters, "applied" | "later" | "viewed"> {
+  if (mark === "new") return { applied: "no", later: "no", viewed: "no" }
   return {
     applied: mark === "applied" ? "yes" : undefined,
     later: mark === "later" ? "yes" : undefined,
@@ -64,7 +63,15 @@ function markOf(filters: JobFilters): MarkFilter {
   if (filters.applied === "yes") return "applied"
   if (filters.later === "yes") return "later"
   if (filters.viewed === "yes") return "viewed"
+  if (filters.applied === "no" && filters.later === "no" && filters.viewed === "no") return "new"
   return ""
+}
+
+const DEFAULT_FILTERS: JobFilters = {
+  min_score: 55,
+  sort: "score",
+  dir: "desc",
+  ...markFlags("new"),
 }
 
 function str(raw: unknown): string | undefined {
@@ -97,7 +104,15 @@ function reviveFilters(raw: unknown): JobFilters | undefined {
     // These three used to be separate dropdowns; they are one mark now, so
     // an old stored set that had more than one «yes» keeps the strongest.
     ...markFlags(
-      stored.applied === "yes" ? "applied" : stored.later === "yes" ? "later" : stored.viewed === "yes" ? "viewed" : "",
+      stored.applied === "yes"
+        ? "applied"
+        : stored.later === "yes"
+          ? "later"
+          : stored.viewed === "yes"
+            ? "viewed"
+            : stored.applied === "no" && stored.later === "no" && stored.viewed === "no"
+              ? "new"
+              : "",
     ),
     companies: companies.length > 0 ? companies : undefined,
     sort: typeof stored.sort === "string" && stored.sort in DEFAULT_DIR ? (stored.sort as JobSort) : "score",
@@ -116,7 +131,7 @@ export function Jobs({
   const { notify } = useApp()
   const [filters, setFilters] = usePersistentState<JobFilters>(
     "jobs.filters",
-    { ...DEFAULT_FILTERS, ...preset },
+    { ...DEFAULT_FILTERS, ...(preset ? markFlags("") : {}), ...preset },
     reviveFilters,
     { store: !preset },
   )
@@ -420,10 +435,11 @@ export function Jobs({
             setFilters((prev) => ({ ...prev, ...markFlags(event.target.value as MarkFilter) }))
           }
         >
-          <option value="">Все</option>
+          <option value="new">Новые</option>
           <option value="applied">Подался</option>
           <option value="later">Позже</option>
           <option value="viewed">Смотрел</option>
+          <option value="">Все</option>
         </select>
 
         <select
