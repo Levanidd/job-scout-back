@@ -316,28 +316,28 @@ export function Sources({ onOpenJobs }: { onOpenJobs: (source: Source) => void }
           onChange={(event) => setQuery(event.target.value)}
         />
         <select className="select" value={kind} onChange={(event) => setKind(event.target.value as KindFilter)}>
-          <option value="">Все типы</option>
-          <option value="company">компания</option>
-          <option value="query">запрос</option>
+          <option value="">Все</option>
+          <option value="company">Компания</option>
+          <option value="query">Запрос</option>
         </select>
         <select className="select" value={tier} onChange={(event) => setTier(event.target.value as TierFilter)}>
-          <option value="">Все уровни</option>
-          <option value="watchlist">watchlist</option>
-          <option value="discovery">discovery</option>
+          <option value="">Все</option>
+          <option value="watchlist">Watchlist</option>
+          <option value="discovery">Discovery</option>
         </select>
         <select className="select" value={enabled} onChange={(event) => setEnabled(event.target.value as EnabledFilter)}>
-          <option value="">Вкл и выкл</option>
-          <option value="on">включённые</option>
-          <option value="off">выключенные</option>
+          <option value="">Все</option>
+          <option value="on">Включённые</option>
+          <option value="off">Выключенные</option>
         </select>
         <select className="select" value={status} onChange={(event) => setStatus(event.target.value as StatusFilter)}>
-          <option value="">Любой статус</option>
-          <option value="ok">ок</option>
-          <option value="error">ошибка</option>
-          <option value="never">не запускался</option>
+          <option value="">Все</option>
+          <option value="ok">Ок</option>
+          <option value="error">Ошибка</option>
+          <option value="never">Не запускался</option>
         </select>
         <select className="select" value={provider} onChange={(event) => setProvider(event.target.value)}>
-          <option value="">Все ATS</option>
+          <option value="">Все</option>
           {providers.map((item) => (
             <option key={item} value={item}>
               {item}
@@ -413,8 +413,8 @@ export function Sources({ onOpenJobs }: { onOpenJobs: (source: Source) => void }
                           value={source.tier}
                           onChange={(event) => void changeTier(source, event.target.value as Tier)}
                         >
-                          <option value="watchlist">watchlist</option>
-                          <option value="discovery">discovery</option>
+                          <option value="watchlist">Watchlist</option>
+                          <option value="discovery">Discovery</option>
                         </select>
                       ) : (
                         source.tier

@@ -12,20 +12,20 @@ import { Age, Count, Empty, Flags, ScoreBadge, Skeletons, formatSalary, plural }
 import type { CompanyFacet, Job, JobStatus } from "../types"
 
 const STATUS_LABELS: Record<JobStatus, string> = {
-  new: "новая",
-  notified: "отправлена",
-  saved: "сохранена",
-  applied: "откликнулся",
-  interview: "интервью",
-  rejected: "отказ",
-  ignored: "скрыта",
-  off_profile: "вне профиля",
+  new: "Новая",
+  notified: "Отправлена",
+  saved: "Сохранена",
+  applied: "Откликнулся",
+  interview: "Интервью",
+  rejected: "Отказ",
+  ignored: "Скрыта",
+  off_profile: "Вне профиля",
 }
 
 /**
  * Every status still gets a label on the card, but only these three are worth
  * browsing by. The application pipeline has a tab of its own, `notified` and
- * `off_profile` are bookkeeping the machine does, and «Все, включая отсеянные»
+ * `off_profile` are bookkeeping the machine does, and «Все»
  * already brings the prefiltered pile back.
  */
 const FILTER_STATUSES: JobStatus[] = ["new", "saved", "ignored"]
@@ -354,7 +354,7 @@ export function Jobs({
           value={filters.tier ?? ""}
           onChange={(event) => setFilters((prev) => ({ ...prev, tier: event.target.value || undefined }))}
         >
-          <option value="">Все источники</option>
+          <option value="">Все</option>
           <option value="watchlist">Watchlist</option>
           <option value="discovery">Discovery</option>
         </select>
@@ -364,11 +364,11 @@ export function Jobs({
           value={String(filters.min_score ?? 0)}
           onChange={(event) => setFilters((prev) => ({ ...prev, min_score: Number(event.target.value) }))}
         >
-          <option value="0">Любой score</option>
-          <option value="40">от 40</option>
-          <option value="55">от 55</option>
-          <option value="70">от 70</option>
-          <option value="85">от 85</option>
+          <option value="0">Все</option>
+          <option value="40">От 40</option>
+          <option value="55">От 55</option>
+          <option value="70">От 70</option>
+          <option value="85">От 85</option>
         </select>
 
         <select
@@ -386,7 +386,7 @@ export function Jobs({
           }}
         >
           <option value="">По профилю</option>
-          <option value="any">Все, включая отсеянные</option>
+          <option value="any">Все</option>
           {FILTER_STATUSES.map((item) => (
             <option key={item} value={item}>
               {STATUS_LABELS[item]}
@@ -404,7 +404,7 @@ export function Jobs({
             }))
           }
         >
-          <option value="">Просмотренные и нет</option>
+          <option value="">Все</option>
           <option value="no">Только непросмотренные</option>
           <option value="yes">Только просмотренные</option>
         </select>
@@ -419,7 +419,7 @@ export function Jobs({
             }))
           }
         >
-          <option value="">Отложенные и нет</option>
+          <option value="">Все</option>
           <option value="yes">Только «посмотреть позже»</option>
           <option value="no">Кроме отложенных</option>
         </select>
@@ -434,7 +434,7 @@ export function Jobs({
             }))
           }
         >
-          <option value="">Отклики и нет</option>
+          <option value="">Все</option>
           <option value="no">Куда не подавался</option>
           <option value="yes">Только куда подался</option>
         </select>
@@ -452,12 +452,12 @@ export function Jobs({
             }))
           }}
         >
-          <option value="">Добавлена когда угодно</option>
-          <option value="1">сегодня</option>
-          <option value="3">за 3 дня</option>
-          <option value="7">за неделю</option>
-          <option value="30">за месяц</option>
-          <option value="custom">с даты…</option>
+          <option value="">Все</option>
+          <option value="1">Сегодня</option>
+          <option value="3">За 3 дня</option>
+          <option value="7">За неделю</option>
+          <option value="30">За месяц</option>
+          <option value="custom">С даты…</option>
         </select>
 
         {addedMode === "custom" ? (
@@ -490,7 +490,7 @@ export function Jobs({
         ) : null}
 
         <MultiSelect
-          label="Компании"
+          label="Все"
           options={companies.map((item) => ({
             value: item.company_key,
             label: item.company,

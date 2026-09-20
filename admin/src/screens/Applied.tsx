@@ -29,9 +29,9 @@ const PIPE_ACTIONS: Array<{ status: JobStatus; label: string }> = [
 ]
 
 const PIPE_LABELS: Record<"applied" | "interview" | "rejected", string> = {
-  applied: "подался",
-  interview: "интервью",
-  rejected: "отказ",
+  applied: "Подался",
+  interview: "Интервью",
+  rejected: "Отказ",
 }
 
 function pipeLabel(status: JobStatus): string {

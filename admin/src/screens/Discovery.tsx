@@ -14,9 +14,9 @@ type AtsFilter = string
 type SortKey = "company" | "jobs" | "score" | "seen" | "ats"
 
 const STATE_LABELS: Record<DiscoveredCompany["state"], string> = {
-  new: "новая",
-  added: "в мониторинге",
-  dismissed: "скрытая",
+  new: "Новая",
+  added: "В мониторинге",
+  dismissed: "Скрытая",
 }
 
 const STATE_BADGE: Record<DiscoveredCompany["state"], string> = {
@@ -167,13 +167,13 @@ export function Discovery({ onOpenJobs }: { onOpenJobs: (company: DiscoveredComp
           onChange={(event) => setQuery(event.target.value)}
         />
         <select className="select" value={state} onChange={(event) => setState(event.target.value as StateFilter)}>
-          <option value="">Все статусы</option>
-          <option value="new">новые</option>
-          <option value="added">в мониторинге</option>
-          <option value="dismissed">скрытые</option>
+          <option value="">Все</option>
+          <option value="new">Новые</option>
+          <option value="added">В мониторинге</option>
+          <option value="dismissed">Скрытые</option>
         </select>
         <select className="select" value={ats} onChange={(event) => setAts(event.target.value)}>
-          <option value="">Все ATS</option>
+          <option value="">Все</option>
           <option value="known">ATS известен</option>
           <option value="none">ATS не найден</option>
           {providers.map((item) => (
@@ -183,9 +183,9 @@ export function Discovery({ onOpenJobs }: { onOpenJobs: (company: DiscoveredComp
           ))}
         </select>
         <select className="select" value={jobs} onChange={(event) => setJobs(event.target.value as JobsFilter)}>
-          <option value="">Любые вакансии</option>
-          <option value="open">есть открытые</option>
-          <option value="none">без открытых</option>
+          <option value="">Все</option>
+          <option value="open">Есть открытые</option>
+          <option value="none">Без открытых</option>
         </select>
       </div>
 
