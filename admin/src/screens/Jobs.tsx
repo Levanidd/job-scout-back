@@ -50,6 +50,23 @@ const DEFAULT_DIR: Record<JobSort, "asc" | "desc"> = {
 
 const DEFAULT_FILTERS: JobFilters = { min_score: 55, sort: "score", dir: "desc" }
 
+type MarkFilter = "" | "applied" | "later" | "viewed"
+
+function markFlags(mark: MarkFilter): Pick<JobFilters, "applied" | "later" | "viewed"> {
+  return {
+    applied: mark === "applied" ? "yes" : undefined,
+    later: mark === "later" ? "yes" : undefined,
+    viewed: mark === "viewed" ? "yes" : undefined,
+  }
+}
+
+function markOf(filters: JobFilters): MarkFilter {
+  if (filters.applied === "yes") return "applied"
+  if (filters.later === "yes") return "later"
+  if (filters.viewed === "yes") return "viewed"
+  return ""
+}
+
 function str(raw: unknown): string | undefined {
   return typeof raw === "string" && raw ? raw : undefined
 }
@@ -77,9 +94,11 @@ function reviveFilters(raw: unknown): JobFilters | undefined {
     min_score: num(stored.min_score) ?? 0,
     added_days: num(stored.added_days),
     added_from: str(stored.added_from),
-    viewed: stored.viewed === "yes" ? "yes" : undefined,
-    later: stored.later === "yes" ? "yes" : undefined,
-    applied: stored.applied === "yes" ? "yes" : undefined,
+    // These three used to be separate dropdowns; they are one mark now, so
+    // an old stored set that had more than one «yes» keeps the strongest.
+    ...markFlags(
+      stored.applied === "yes" ? "applied" : stored.later === "yes" ? "later" : stored.viewed === "yes" ? "viewed" : "",
+    ),
     companies: companies.length > 0 ? companies : undefined,
     sort: typeof stored.sort === "string" && stored.sort in DEFAULT_DIR ? (stored.sort as JobSort) : "score",
     dir: stored.dir === "asc" ? "asc" : "desc",
@@ -396,44 +415,15 @@ export function Jobs({
 
         <select
           className="select"
-          value={filters.viewed ?? ""}
+          value={markOf(filters)}
           onChange={(event) =>
-            setFilters((prev) => ({
-              ...prev,
-              viewed: event.target.value === "yes" ? "yes" : undefined,
-            }))
+            setFilters((prev) => ({ ...prev, ...markFlags(event.target.value as MarkFilter) }))
           }
         >
           <option value="">Все</option>
-          <option value="yes">Смотрел</option>
-        </select>
-
-        <select
-          className="select"
-          value={filters.later ?? ""}
-          onChange={(event) =>
-            setFilters((prev) => ({
-              ...prev,
-              later: event.target.value === "yes" ? "yes" : undefined,
-            }))
-          }
-        >
-          <option value="">Все</option>
-          <option value="yes">Позже</option>
-        </select>
-
-        <select
-          className="select"
-          value={filters.applied ?? ""}
-          onChange={(event) =>
-            setFilters((prev) => ({
-              ...prev,
-              applied: event.target.value === "yes" ? "yes" : undefined,
-            }))
-          }
-        >
-          <option value="">Все</option>
-          <option value="yes">Подался</option>
+          <option value="applied">Подался</option>
+          <option value="later">Позже</option>
+          <option value="viewed">Смотрел</option>
         </select>
 
         <select
