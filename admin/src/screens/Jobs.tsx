@@ -77,9 +77,9 @@ function reviveFilters(raw: unknown): JobFilters | undefined {
     min_score: num(stored.min_score) ?? 0,
     added_days: num(stored.added_days),
     added_from: str(stored.added_from),
-    viewed: stored.viewed === "yes" || stored.viewed === "no" ? stored.viewed : undefined,
-    later: stored.later === "yes" || stored.later === "no" ? stored.later : undefined,
-    applied: stored.applied === "yes" || stored.applied === "no" ? stored.applied : undefined,
+    viewed: stored.viewed === "yes" ? "yes" : undefined,
+    later: stored.later === "yes" ? "yes" : undefined,
+    applied: stored.applied === "yes" ? "yes" : undefined,
     companies: companies.length > 0 ? companies : undefined,
     sort: typeof stored.sort === "string" && stored.sort in DEFAULT_DIR ? (stored.sort as JobSort) : "score",
     dir: stored.dir === "asc" ? "asc" : "desc",
@@ -400,13 +400,12 @@ export function Jobs({
           onChange={(event) =>
             setFilters((prev) => ({
               ...prev,
-              viewed: event.target.value === "yes" || event.target.value === "no" ? event.target.value : undefined,
+              viewed: event.target.value === "yes" ? "yes" : undefined,
             }))
           }
         >
           <option value="">Все</option>
-          <option value="no">Только непросмотренные</option>
-          <option value="yes">Только просмотренные</option>
+          <option value="yes">Смотрел</option>
         </select>
 
         <select
@@ -415,13 +414,12 @@ export function Jobs({
           onChange={(event) =>
             setFilters((prev) => ({
               ...prev,
-              later: event.target.value === "yes" || event.target.value === "no" ? event.target.value : undefined,
+              later: event.target.value === "yes" ? "yes" : undefined,
             }))
           }
         >
           <option value="">Все</option>
-          <option value="yes">Только «посмотреть позже»</option>
-          <option value="no">Кроме отложенных</option>
+          <option value="yes">Позже</option>
         </select>
 
         <select
@@ -430,13 +428,12 @@ export function Jobs({
           onChange={(event) =>
             setFilters((prev) => ({
               ...prev,
-              applied: event.target.value === "yes" || event.target.value === "no" ? event.target.value : undefined,
+              applied: event.target.value === "yes" ? "yes" : undefined,
             }))
           }
         >
           <option value="">Все</option>
-          <option value="no">Куда не подавался</option>
-          <option value="yes">Только куда подался</option>
+          <option value="yes">Подался</option>
         </select>
 
         <select
