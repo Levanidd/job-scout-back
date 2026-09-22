@@ -9,7 +9,7 @@ export function SortHeader<T extends string>({
 }: {
   column: T
   label: string
-  sort: T
+  sort: T | null
   dir: "asc" | "desc"
   onSort: (column: T) => void
   className?: string
@@ -20,9 +20,11 @@ export function SortHeader<T extends string>({
     <th className={className} title={title} aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}>
       <button type="button" className={`th-sort ${active ? "is-active" : ""}`} onClick={() => onSort(column)}>
         {label}
-        <span className="th-arrow" aria-hidden>
-          {active ? (dir === "asc" ? "↑" : "↓") : "↕"}
-        </span>
+        {active ? (
+          <span className="th-arrow" aria-hidden>
+            {dir === "asc" ? "↑" : "↓"}
+          </span>
+        ) : null}
       </button>
     </th>
   )

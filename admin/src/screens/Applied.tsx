@@ -1,9 +1,10 @@
-import { useCallback, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 
 import { api } from "../api"
 import { useAction, useLoader } from "../app-context"
 import { oneOf, usePersistentState } from "../persist"
 import { JobCard } from "../components/JobCard"
+import { SortHeader } from "../components/SortHeader"
 import { Age, Count, Empty, Field, ScoreBadge, Skeletons, formatSalary } from "../components/common"
 import type { Job, JobStatus } from "../types"
 
@@ -37,6 +38,69 @@ const PIPE_LABELS: Record<"applied" | "interview" | "rejected", string> = {
 function pipeLabel(status: JobStatus): string {
   if (status === "applied" || status === "interview" || status === "rejected") return PIPE_LABELS[status]
   return status
+}
+
+type AppliedSort = "title" | "company" | "score" | "posted" | "added" | "updated" | "applied" | "status"
+
+const DEFAULT_DIR: Record<AppliedSort, "asc" | "desc"> = {
+  title: "asc",
+  company: "asc",
+  score: "desc",
+  posted: "desc",
+  added: "desc",
+  updated: "desc",
+  applied: "desc",
+  status: "asc",
+}
+
+const PIPE_ORDER: Record<string, number> = { applied: 0, interview: 1, rejected: 2 }
+
+function compare(a: Job, b: Job, sort: AppliedSort, dir: "asc" | "desc"): number {
+  const sign = dir === "asc" ? 1 : -1
+  let left: string | number = 0
+  let right: string | number = 0
+  switch (sort) {
+    case "title":
+      left = a.title.toLowerCase()
+      right = b.title.toLowerCase()
+      break
+    case "company":
+      left = a.company.toLowerCase()
+      right = b.company.toLowerCase()
+      break
+    case "score":
+      left = a.score ?? -1
+      right = b.score ?? -1
+      break
+    case "posted":
+      left = a.posted_at ?? a.first_seen_at ?? ""
+      right = b.posted_at ?? b.first_seen_at ?? ""
+      break
+    case "added":
+      left = a.first_seen_at ?? ""
+      right = b.first_seen_at ?? ""
+      break
+    case "updated":
+      left = a.changed_at ?? a.first_seen_at ?? ""
+      right = b.changed_at ?? b.first_seen_at ?? ""
+      break
+    case "applied":
+      left = a.applied_at ?? ""
+      right = b.applied_at ?? ""
+      break
+    case "status":
+      left = PIPE_ORDER[a.status] ?? 9
+      right = PIPE_ORDER[b.status] ?? 9
+      break
+  }
+  if (left < right) return -1 * sign
+  if (left > right) return 1 * sign
+  return a.id.localeCompare(b.id)
+}
+
+function reviveSort(raw: unknown): AppliedSort | null | undefined {
+  if (raw === null || raw === "") return null
+  return typeof raw === "string" && raw in DEFAULT_DIR ? (raw as AppliedSort) : undefined
 }
 
 function ManualJobForm({ onCreated, onCancel }: { onCreated: (job: Job) => void; onCancel: () => void }) {
@@ -227,6 +291,26 @@ export function Applied({
   const [jobs, setJobs] = useState<Job[] | null>(null)
   const [open, setOpen] = useState<Job | null>(null)
   const [composing, setComposing] = useState(false)
+  const [sort, setSort] = usePersistentState<AppliedSort | null>("applied.sort", null, reviveSort)
+  const [dir, setDir] = usePersistentState<"asc" | "desc">("applied.dir", "desc", oneOf("asc", "desc"))
+
+  const rows = useMemo(() => {
+    if (!jobs || !sort) return jobs
+    return [...jobs].sort((a, b) => compare(a, b, sort, dir))
+  }, [jobs, sort, dir])
+
+  function sortBy(column: AppliedSort) {
+    if (sort !== column) {
+      setSort(column)
+      setDir(DEFAULT_DIR[column])
+      return
+    }
+    if (dir === DEFAULT_DIR[column]) {
+      setDir(dir === "asc" ? "desc" : "asc")
+      return
+    }
+    setSort(null)
+  }
 
   const load = useCallback(
     async (silent = false) => {
@@ -324,11 +408,11 @@ export function Applied({
         </button>
       </div>
 
-      {jobs?.length ? <Count shown={jobs.length} forms={["отклик", "отклика", "откликов"]} /> : null}
+      {rows?.length ? <Count shown={rows.length} forms={["отклик", "отклика", "откликов"]} /> : null}
 
-      {jobs === null ? (
+      {rows === null ? (
         <Skeletons />
-      ) : jobs.length === 0 ? (
+      ) : rows.length === 0 ? (
         <Empty
           title="Пока пусто"
           hint="Отметьте «Подался» в списке вакансий или добавьте позицию вручную, если её нет на ATS."
@@ -338,25 +422,43 @@ export function Applied({
           <table className="table">
             <thead>
               <tr>
-                <th>Вакансия</th>
-                <th className="col-company">Компания</th>
-                <th className="col-score">Score</th>
-                <th className="col-date">Опубликована</th>
-                <th className="col-date" title="Когда мы впервые увидели вакансию">
-                  Добавлена
-                </th>
-                <th className="col-date" title="Когда вакансия изменилась у источника">
-                  Обновлена
-                </th>
-                <th className="col-date" title="Когда вы отметили отклик">
-                  Подался
-                </th>
-                <th>Статус</th>
+                <SortHeader column="title" label="Вакансия" sort={sort} dir={dir} onSort={sortBy} />
+                <SortHeader column="company" label="Компания" sort={sort} dir={dir} onSort={sortBy} className="col-company" />
+                <SortHeader column="score" label="Score" sort={sort} dir={dir} onSort={sortBy} className="col-score" />
+                <SortHeader column="posted" label="Опубликована" sort={sort} dir={dir} onSort={sortBy} className="col-date" />
+                <SortHeader
+                  column="added"
+                  label="Добавлена"
+                  sort={sort}
+                  dir={dir}
+                  onSort={sortBy}
+                  className="col-date"
+                  title="Когда мы впервые увидели вакансию"
+                />
+                <SortHeader
+                  column="updated"
+                  label="Обновлена"
+                  sort={sort}
+                  dir={dir}
+                  onSort={sortBy}
+                  className="col-date"
+                  title="Когда вакансия изменилась у источника"
+                />
+                <SortHeader
+                  column="applied"
+                  label="Подался"
+                  sort={sort}
+                  dir={dir}
+                  onSort={sortBy}
+                  className="col-date"
+                  title="Когда вы отметили отклик"
+                />
+                <SortHeader column="status" label="Статус" sort={sort} dir={dir} onSort={sortBy} />
                 <th className="col-more" />
               </tr>
             </thead>
             <tbody>
-              {jobs.map((job) => (
+              {rows.map((job) => (
                 <tr key={job.id}>
                   <td>
                     <a href={job.url} target="_blank" rel="noreferrer">
