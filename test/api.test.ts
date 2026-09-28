@@ -197,6 +197,21 @@ describe("jobs", () => {
     expect(back.body.applied_at).toBeNull()
   })
 
+  it("keeps an interview when the application is later rejected and counts it as one", async () => {
+    const id = await seedJob()
+    const interview = await call(`/api/jobs/${id}`, { method: "PATCH", body: JSON.stringify({ status: "interview" }) })
+    expect(interview.body.interviewed_at).toBeTruthy()
+
+    const rejected = await call(`/api/jobs/${id}`, { method: "PATCH", body: JSON.stringify({ status: "rejected" }) })
+    expect(rejected.body).toMatchObject({ status: "rejected" })
+    expect(rejected.body.interviewed_at).toBe(interview.body.interviewed_at)
+
+    expect((await call("/api/stats")).body.pipeline).toMatchObject({ waiting: 0, interview: 1, rejected: 0 })
+    expect((await call("/api/applied?status=interview")).body.jobs).toHaveLength(1)
+    expect((await call("/api/applied?status=rejected")).body.jobs).toHaveLength(0)
+    expect((await call(`/api/jobs/${id}`)).body.job.interviewed_at).toBe(interview.body.interviewed_at)
+  })
+
   it("refuses an unknown status and an empty patch", async () => {
     const id = await seedJob()
     expect(await call(`/api/jobs/${id}`, { method: "PATCH", body: JSON.stringify({ status: "boss" }) })).toMatchObject({

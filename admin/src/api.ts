@@ -120,6 +120,7 @@ export type JobPatch = {
   applied_at: string | null
   viewed_at: string | null
   later_at: string | null
+  interviewed_at: string | null
 }
 
 function patchJob(

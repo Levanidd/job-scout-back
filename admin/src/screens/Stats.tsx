@@ -289,7 +289,11 @@ export function Stats({ onOpenApplied }: { onOpenApplied: (status: PipeFilter) =
           <Kpi
             label="Отказ"
             value={stats.pipeline.rejected}
-            hint={stats.applied ? `${pct(stats.pipeline.rejected, stats.applied)} от откликов` : "появятся после откликов"}
+            hint={
+              stats.applied
+                ? `${pct(stats.pipeline.rejected, stats.applied)} от откликов · без собеса`
+                : "появятся после откликов"
+            }
             onOpen={() => onOpenApplied("rejected")}
           />
         </div>

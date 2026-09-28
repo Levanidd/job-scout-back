@@ -146,6 +146,7 @@ export function JobCard({
           <Meta label="Добавлена" value={job.first_seen_at} />
           <Meta label="Обновлена" value={job.changed_at ?? job.first_seen_at} />
           <Meta label="Подался" value={job.applied_at} />
+          {job.interviewed_at ? <Meta label="Собес" value={job.interviewed_at} /> : null}
         </div>
 
         {children}

@@ -224,6 +224,7 @@ export function Jobs({
       applied_at: result.applied_at,
       viewed_at: result.viewed_at,
       later_at: result.later_at,
+      interviewed_at: result.interviewed_at,
     })
   }
 

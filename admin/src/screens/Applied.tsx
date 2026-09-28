@@ -339,7 +339,11 @@ export function Applied({
   async function setPipeline(job: Job, next: JobStatus) {
     const result = await run(() => api.setJobStatus(job.id, next))
     if (!result) return
-    const update = { status: result.status, applied_at: result.applied_at }
+    const update = {
+      status: result.status,
+      applied_at: result.applied_at,
+      interviewed_at: result.interviewed_at,
+    }
     setOpen((prev) => (prev && prev.id === job.id ? { ...prev, ...update } : prev))
     setJobs(
       (prev) =>
@@ -503,7 +507,12 @@ export function Applied({
                     <Age value={job.applied_at} warnAfter={14} />
                   </td>
                   <td>
-                    <span className="badge badge-neutral badge-cell">{pipeLabel(job.status)}</span>
+                    <div className="status-marks">
+                      <span className="badge badge-neutral badge-cell">{pipeLabel(job.status)}</span>
+                      {job.interviewed_at && job.status !== "interview" ? (
+                        <span className="badge badge-accent badge-cell">был собес</span>
+                      ) : null}
+                    </div>
                   </td>
                   <td className="col-more">
                     <button className="btn btn-ghost btn-sm" onClick={() => void openCard(job)}>

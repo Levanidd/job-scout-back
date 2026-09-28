@@ -174,6 +174,9 @@ jobs.patch("/api/jobs/:id", async (c) => {
     } else if (body.status !== "rejected") {
       sets.push("applied_at = NULL")
     }
+    if (body.status === "interview") {
+      sets.push("interviewed_at = COALESCE(interviewed_at, datetime('now'))")
+    }
   }
   if (body.notes !== undefined) {
     sets.push("notes = ?")
@@ -191,7 +194,7 @@ jobs.patch("/api/jobs/:id", async (c) => {
     .run()
 
   const row = await c.env.DB.prepare(
-    `SELECT status, notes, applied_at, viewed_at, later_at FROM user_jobs WHERE user_id = ? AND job_id = ?`,
+    `SELECT status, notes, applied_at, viewed_at, later_at, interviewed_at FROM user_jobs WHERE user_id = ? AND job_id = ?`,
   )
     .bind(userId, id)
     .first<{
@@ -200,6 +203,7 @@ jobs.patch("/api/jobs/:id", async (c) => {
       applied_at: string | null
       viewed_at: string | null
       later_at: string | null
+      interviewed_at: string | null
     }>()
   return c.json({
     ok: true,
@@ -208,6 +212,7 @@ jobs.patch("/api/jobs/:id", async (c) => {
     applied_at: row?.applied_at ?? null,
     viewed_at: row?.viewed_at ?? null,
     later_at: row?.later_at ?? null,
+    interviewed_at: row?.interviewed_at ?? null,
   })
 })
 

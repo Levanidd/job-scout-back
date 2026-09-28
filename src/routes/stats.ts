@@ -101,10 +101,13 @@ export function fillMonths(rows: Bucket[]): Bucket[] {
   return keys.reverse().map((start) => byStart.get(start) ?? emptyBucket(start))
 }
 
+/** An interview that later became a rejection still counts as the interview. */
+const HAD_INTERVIEW = `(uj.status = 'interview' OR uj.interviewed_at IS NOT NULL)`
+
 const PIPELINE_BREAKDOWN = `
-  SUM(CASE WHEN uj.status = 'interview' THEN 1 ELSE 0 END) AS interview,
-  SUM(CASE WHEN uj.status = 'rejected' THEN 1 ELSE 0 END) AS rejected,
-  SUM(CASE WHEN uj.status NOT IN ('interview', 'rejected') THEN 1 ELSE 0 END) AS applied`
+  SUM(CASE WHEN ${HAD_INTERVIEW} THEN 1 ELSE 0 END) AS interview,
+  SUM(CASE WHEN uj.status = 'rejected' AND uj.interviewed_at IS NULL THEN 1 ELSE 0 END) AS rejected,
+  SUM(CASE WHEN NOT ${HAD_INTERVIEW} AND uj.status <> 'rejected' THEN 1 ELSE 0 END) AS applied`
 
 /** `days` back from now, as the ISO string the timestamp columns are stored in. */
 export function periodStart(raw: string | undefined, now = new Date()): string | null {
@@ -146,9 +149,9 @@ stats.get("/api/stats", async (c) => {
     ).bind(...totalsBinds),
     c.env.DB.prepare(
       `SELECT
-         SUM(CASE WHEN uj.status = 'interview' THEN 1 ELSE 0 END) AS interview,
-         SUM(CASE WHEN uj.status = 'rejected' THEN 1 ELSE 0 END) AS rejected,
-         SUM(CASE WHEN uj.status NOT IN ('interview', 'rejected') THEN 1 ELSE 0 END) AS waiting
+         SUM(CASE WHEN ${HAD_INTERVIEW} THEN 1 ELSE 0 END) AS interview,
+         SUM(CASE WHEN uj.status = 'rejected' AND uj.interviewed_at IS NULL THEN 1 ELSE 0 END) AS rejected,
+         SUM(CASE WHEN NOT ${HAD_INTERVIEW} AND uj.status <> 'rejected' THEN 1 ELSE 0 END) AS waiting
        ${join}
        WHERE ${acted("applied_at")} AND ${where}`,
     ).bind(...appliedBinds),

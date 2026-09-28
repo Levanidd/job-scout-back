@@ -11,7 +11,7 @@ export const JOB_COLUMNS = `j.id, j.source_id, j.company, j.company_key, j.title
   j.posted_at, j.first_seen_at, j.last_seen_at, j.changed_at, j.salary_min, j.salary_max, j.salary_currency,
   j.duplicate_of,
   uj.score, uj.score_reason, uj.flags, COALESCE(uj.status, 'new') AS status,
-  uj.applied_at, uj.viewed_at, uj.later_at`
+  uj.applied_at, uj.viewed_at, uj.later_at, uj.interviewed_at`
 
 /** A posting is only ever shown with the source that carries it and this user's verdict. */
 export const JOB_SOURCE = `FROM jobs j
@@ -125,9 +125,13 @@ export async function appliedFilters(c: Ctx): Promise<Where> {
   binds.push(...blocked.binds)
 
   const status = c.req.query("status") ?? ""
-  if (status === "applied" || status === "interview" || status === "rejected") {
-    clauses.push("uj.status = ?")
-    binds.push(status)
+  if (status === "applied") {
+    clauses.push("uj.status = 'applied'")
+  } else if (status === "interview") {
+    // A rejection after an interview still belongs here: that is the собес.
+    clauses.push("(uj.status = 'interview' OR uj.interviewed_at IS NOT NULL)")
+  } else if (status === "rejected") {
+    clauses.push("uj.status = 'rejected' AND uj.interviewed_at IS NULL")
   }
   return { clauses: clauses.join(" AND "), binds }
 }

@@ -361,15 +361,16 @@ function inheritUserJobs(env: Bindings, fromId: string, toId: string): D1Prepare
   return env.DB.prepare(
     `INSERT INTO user_jobs (
        user_id, job_id, status, score, score_reason, flags, notes,
-       applied_at, viewed_at, later_at, notified_at
+       applied_at, viewed_at, later_at, notified_at, interviewed_at
      )
      SELECT user_id, ?, status, score, score_reason, flags, notes,
-            applied_at, viewed_at, later_at, notified_at
+            applied_at, viewed_at, later_at, notified_at, interviewed_at
      FROM user_jobs WHERE job_id = ?
      ON CONFLICT(user_id, job_id) DO UPDATE SET
        applied_at = COALESCE(user_jobs.applied_at, excluded.applied_at),
        viewed_at = COALESCE(user_jobs.viewed_at, excluded.viewed_at),
        later_at = COALESCE(user_jobs.later_at, excluded.later_at),
+       interviewed_at = COALESCE(user_jobs.interviewed_at, excluded.interviewed_at),
        notes = COALESCE(user_jobs.notes, excluded.notes),
        status = CASE WHEN excluded.status IN ('applied', 'interview', 'rejected', 'saved', 'ignored')
          THEN excluded.status ELSE user_jobs.status END,
@@ -978,14 +979,15 @@ export async function createManualJob(env: Bindings, input: ManualJobInput, user
     .run()
 
   await env.DB.prepare(
-    `INSERT INTO user_jobs (user_id, job_id, status, notes, applied_at)
-     VALUES (?, ?, ?, ?, COALESCE(?, datetime('now')))
+    `INSERT INTO user_jobs (user_id, job_id, status, notes, applied_at, interviewed_at)
+     VALUES (?, ?, ?, ?, COALESCE(?, datetime('now')), CASE WHEN ? = 'interview' THEN COALESCE(?, datetime('now')) END)
      ON CONFLICT(user_id, job_id) DO UPDATE SET
        status = excluded.status,
        notes = COALESCE(excluded.notes, user_jobs.notes),
-       applied_at = COALESCE(user_jobs.applied_at, excluded.applied_at)`,
+       applied_at = COALESCE(user_jobs.applied_at, excluded.applied_at),
+       interviewed_at = COALESCE(user_jobs.interviewed_at, excluded.interviewed_at)`,
   )
-    .bind(userId, id, status, notes, appliedAt)
+    .bind(userId, id, status, notes, appliedAt, status, appliedAt)
     .run()
 
   const job = await env.DB.prepare(
@@ -993,7 +995,7 @@ export async function createManualJob(env: Bindings, input: ManualJobInput, user
             j.posted_at, j.first_seen_at, j.last_seen_at, j.changed_at,
             j.salary_min, j.salary_max, j.salary_currency,
             uj.score, uj.score_reason, uj.flags, COALESCE(uj.status, 'new') AS status,
-            uj.applied_at, uj.viewed_at, uj.later_at, uj.notes, j.description,
+            uj.applied_at, uj.viewed_at, uj.later_at, uj.interviewed_at, uj.notes, j.description,
             s.tier, s.label as source_label
      FROM jobs j
      JOIN sources s ON s.id = j.source_id
