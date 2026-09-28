@@ -211,6 +211,64 @@ describe("jobs", () => {
       (await call("/api/jobs/nope", { method: "PATCH", body: JSON.stringify({ viewed: true }) })).status,
     ).toBe(404)
   })
+
+  it("hides duplicate listings until a person picks one as primary", async () => {
+    const primaryId = await seedJob()
+    await env.DB.prepare(
+      `INSERT INTO sources (kind, tier, label, provider, token) VALUES ('query', 'discovery', 'Arbeitnow', 'arbeitnow', 'product')`,
+    ).run()
+    const query = await one<SourceRow>(env, `SELECT * FROM sources WHERE provider = 'arbeitnow'`)
+    await upsertJobs(
+      env,
+      query!,
+      [
+        {
+          externalId: "9",
+          title: "Senior Product Manager",
+          company: "Acme GmbH",
+          url: "https://www.arbeitnow.com/jobs/acme-spm",
+          location: "Berlin",
+        },
+      ],
+      new Set(),
+    )
+
+    const listed = await call("/api/jobs")
+    expect(listed.body.jobs).toHaveLength(1)
+    expect(listed.body.jobs[0].id).toBe(primaryId)
+    expect(listed.body.jobs[0].url).toBe("https://acme.example/jobs/1")
+
+    const detail = await call(`/api/jobs/${primaryId}`)
+    expect(detail.body.job.duplicates).toHaveLength(2)
+    const alt = detail.body.job.duplicates.find((item: { primary: boolean }) => !item.primary)
+    expect(alt.url).toBe("https://www.arbeitnow.com/jobs/acme-spm")
+
+    await call(`/api/jobs/${primaryId}`, { method: "PATCH", body: JSON.stringify({ status: "applied" }) })
+
+    const switched = await call(`/api/jobs/${alt.id}/primary`, { method: "POST" })
+    expect(switched.status).toBe(200)
+    expect(switched.body.job.id).toBe(alt.id)
+    expect(switched.body.job.url).toBe("https://www.arbeitnow.com/jobs/acme-spm")
+    expect(switched.body.job.applied_at).toBeTruthy()
+    expect(switched.body.job.duplicates.find((item: { id: string }) => item.id === alt.id).primary).toBe(true)
+
+    const after = await call("/api/jobs")
+    expect(after.body.jobs).toHaveLength(1)
+    expect(after.body.jobs[0].id).toBe(alt.id)
+
+    const applied = await call("/api/applied")
+    expect(applied.body.jobs).toHaveLength(1)
+    expect(applied.body.jobs[0].id).toBe(alt.id)
+  })
+
+  it("refuses to promote a listing that has no duplicates", async () => {
+    const id = await seedJob()
+    expect(await call(`/api/jobs/${id}/primary`, { method: "POST" })).toMatchObject({
+      status: 400,
+      body: { error: "no duplicates" },
+    })
+    expect((await call("/api/jobs/nope/primary", { method: "POST" })).status).toBe(404)
+  })
 })
 
 describe("applied", () => {

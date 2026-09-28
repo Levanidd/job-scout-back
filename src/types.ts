@@ -83,6 +83,7 @@ export type JobRow = {
   salary_min?: number | null
   salary_max?: number | null
   salary_currency?: string | null
+  duplicate_of?: string | null
   tier?: string
 }
 

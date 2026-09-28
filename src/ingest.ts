@@ -1,5 +1,5 @@
 import { getAdapter } from "./adapters"
-import { companyKey, dedupKey, jobHash } from "./company-key"
+import { companyKey, companiesRelated, dedupKey, jobHash, titleKey } from "./company-key"
 import { chunk, placeholders, runBatch, selectIn } from "./db"
 import { message } from "./errors"
 import { clipDescription, passesPrefilter } from "./prefilter"
@@ -43,6 +43,31 @@ async function loadDueSources(db: D1Database): Promise<SourceRow[]> {
   return res.results
 }
 
+/**
+ * Aggregators spell the employer differently from the ATS, so an exact
+ * `dedup_key` lookup misses the twin. Pull rows of the other kind whose
+ * company could be this one, then match on the role name in JS.
+ */
+async function loadRelatedTwins(env: Bindings, keys: string[], kind: "query" | "company"): Promise<TwinRow[]> {
+  const unique = [...new Set(keys.filter(Boolean))]
+  if (unique.length === 0) return []
+  const prefixes = [...new Set(unique.flatMap((key) => [key, key.split(" ")[0] ?? key]))]
+  const likes = unique.map((key) => `${key} %`)
+  const clause = [
+    `j.company_key IN (${placeholders(prefixes.length)})`,
+    ...likes.map(() => "j.company_key LIKE ?"),
+  ].join(" OR ")
+  const res = await env.DB.prepare(
+    `SELECT j.id, j.company_key, j.title, s.kind, j.first_seen_at, j.closed_at, j.duplicate_of
+     FROM jobs j JOIN sources s ON s.id = j.source_id
+     WHERE s.kind = ? AND (${clause})
+     ORDER BY j.closed_at IS NULL DESC, j.closed_at DESC`,
+  )
+    .bind(kind, ...prefixes, ...likes)
+    .all<TwinRow>()
+  return res.results
+}
+
 export function isSuspicious(lastCount: number | null, found: number): boolean {
   return lastCount != null && lastCount > 0 && found < lastCount * 0.5
 }
@@ -52,6 +77,9 @@ type TwinRow = {
   kind: string
   first_seen_at: string
   closed_at: string | null
+  company_key: string
+  title: string
+  duplicate_of: string | null
 }
 
 export type SourceStep = RunResult & {
@@ -152,13 +180,35 @@ export async function upsertJobs(
   // by then. A live twin still wins over a retired one.
   for (const twin of await selectIn<TwinRow & { dedup_key: string }>(
     env,
-    (list) => `SELECT j.id, j.dedup_key, s.kind, j.first_seen_at, j.closed_at
+    (list) => `SELECT j.id, j.dedup_key, j.company_key, j.title, s.kind, j.first_seen_at, j.closed_at, j.duplicate_of
        FROM jobs j JOIN sources s ON s.id = j.source_id
        WHERE j.dedup_key IN (${list})
        ORDER BY j.closed_at IS NULL DESC, j.closed_at DESC`,
     openings,
   )) {
     if (!twins.has(twin.dedup_key)) twins.set(twin.dedup_key, twin)
+  }
+
+  const usedTwins = new Set<string>()
+  const relatedKeys = [
+    ...wanted.filter((row) => !present.has(row.id)).map((row) => row.key),
+    companyKey(source.label),
+    companyKey(source.token),
+  ]
+  const relatedTwins = await loadRelatedTwins(env, relatedKeys, source.kind === "company" ? "query" : "company")
+
+  function findTwin(opening: string | null, key: string, title: string): TwinRow | null {
+    if (opening) {
+      const exact = twins.get(opening)
+      if (exact && !usedTwins.has(exact.id)) return exact
+    }
+    const role = titleKey(title)
+    if (!role) return null
+    return (
+      relatedTwins.find(
+        (row) => !usedTwins.has(row.id) && titleKey(row.title) === role && companiesRelated(key, row.company_key),
+      ) ?? null
+    )
   }
 
   const writes: D1PreparedStatement[] = []
@@ -173,20 +223,20 @@ export async function upsertJobs(
     if (opening && !existing && claimed.has(opening)) continue
 
     let inherit: TwinRow | null = null
-    if (opening && !existing) {
-      const twin = twins.get(opening)
+    let duplicateOf: string | null = null
+    if (!existing) {
+      const twin = findTwin(opening, key, job.title)
       if (twin) {
-        // A live twin means the opening is already in the list, so this copy is
-        // dropped — unless it comes from the employer and the twin from an
-        // aggregator, where the employer's row takes over. A retired twin is the
-        // same opening reposted: it has to hand over its history, otherwise the
-        // reposting reads as a brand-new vacancy to whoever already applied.
-        const takeOver = Boolean(twin.closed_at) || (source.kind === "company" && twin.kind === "query")
-        if (!takeOver) continue
-        inherit = twin
-        twins.delete(opening)
+        usedTwins.add(twin.id)
+        if (opening) twins.delete(opening)
+        // A retired twin is the same opening re-posted under a new id: it has
+        // to hand over its history, otherwise whoever already applied sees a
+        // brand-new vacancy. A live twin stays — both listings are kept, and
+        // the one already in the list remains the primary until a person picks.
+        if (twin.closed_at) inherit = twin
+        else duplicateOf = twin.duplicate_of || twin.id
       }
-      claimed.add(opening)
+      if (opening) claimed.add(opening)
     }
 
     if (!existing) {
@@ -196,8 +246,8 @@ export async function upsertJobs(
     const description = clipDescription(job.description) ?? null
     writes.push(
       env.DB.prepare(
-        `INSERT INTO jobs (id, source_id, external_id, company, company_key, title, location, url, description, posted_at, salary_min, salary_max, salary_currency, dedup_key, first_seen_at, last_seen_at, changed_at, closed_at, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'), NULL, 'new')
+        `INSERT INTO jobs (id, source_id, external_id, company, company_key, title, location, url, description, posted_at, salary_min, salary_max, salary_currency, dedup_key, first_seen_at, last_seen_at, changed_at, closed_at, status, duplicate_of)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'), NULL, 'new', ?)
          ON CONFLICT(id) DO UPDATE SET
            last_seen_at = datetime('now'),
            title = excluded.title,
@@ -234,12 +284,16 @@ export async function upsertJobs(
         job.salary?.max ?? null,
         job.salary?.currency || null,
         opening,
+        duplicateOf,
       ),
     )
 
     if (inherit) {
       writes.push(inheritFirstSeen(env, inherit.first_seen_at, id))
       writes.push(inheritUserJobs(env, inherit.id, id))
+      writes.push(
+        env.DB.prepare(`UPDATE jobs SET duplicate_of = ? WHERE duplicate_of = ?`).bind(id, inherit.id),
+      )
       writes.push(env.DB.prepare(`DELETE FROM jobs WHERE id = ?`).bind(inherit.id))
     }
 
@@ -266,7 +320,43 @@ function inheritFirstSeen(env: Bindings, firstSeenAt: string, id: string): D1Pre
   ).bind(firstSeenAt, firstSeenAt, id)
 }
 
-/** Copies every person's verdict from the aggregator twin onto the employer's own row. */
+/**
+ * Makes `jobId` the listing the lists show. The previous primary keeps its
+ * row and becomes a duplicate; verdicts follow so «подался» stays on what
+ * the person sees.
+ */
+export async function setPrimaryListing(env: Bindings, jobId: string): Promise<boolean> {
+  const row = await env.DB.prepare(`SELECT id, duplicate_of, first_seen_at FROM jobs WHERE id = ?`)
+    .bind(jobId)
+    .first<{ id: string; duplicate_of: string | null; first_seen_at: string }>()
+  if (!row) return false
+  const root = row.duplicate_of || row.id
+  const group = await env.DB.prepare(
+    `SELECT id, duplicate_of, first_seen_at FROM jobs WHERE id = ? OR duplicate_of = ?`,
+  )
+    .bind(root, root)
+    .all<{ id: string; duplicate_of: string | null; first_seen_at: string }>()
+  if (group.results.length < 2 || !group.results.some((item) => item.id === jobId)) return false
+  const current = group.results.find((item) => !item.duplicate_of)
+  if (current?.id === jobId) return true
+  const writes: D1PreparedStatement[] = [
+    env.DB.prepare(`UPDATE jobs SET duplicate_of = ? WHERE (id = ? OR duplicate_of = ?) AND id != ?`).bind(
+      jobId,
+      root,
+      root,
+      jobId,
+    ),
+    env.DB.prepare(`UPDATE jobs SET duplicate_of = NULL WHERE id = ?`).bind(jobId),
+  ]
+  if (current) {
+    writes.push(inheritFirstSeen(env, current.first_seen_at, jobId))
+    writes.push(inheritUserJobs(env, current.id, jobId))
+  }
+  await runBatch(env, writes)
+  return true
+}
+
+/** Copies every person's verdict from one listing onto another of the same opening. */
 function inheritUserJobs(env: Bindings, fromId: string, toId: string): D1PreparedStatement {
   return env.DB.prepare(
     `INSERT INTO user_jobs (
@@ -491,7 +581,7 @@ export async function prefilterAndScore(env: Bindings, userId: number, limit?: n
     `SELECT j.id, j.company, j.company_key, j.title, j.location, j.dedup_key
      FROM jobs j
      LEFT JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = ?
-     WHERE j.closed_at IS NULL AND uj.score IS NULL
+     WHERE j.closed_at IS NULL AND j.duplicate_of IS NULL AND uj.score IS NULL
        AND COALESCE(uj.status, 'new') NOT IN ('ignored', 'rejected', 'off_profile')
        AND ${blocked.sql}
      ORDER BY j.first_seen_at
@@ -619,7 +709,8 @@ async function bootstrapColdSources(env: Bindings, userId: number): Promise<void
          SELECT ?, j.id, COALESCE(uj.status, 'new'), datetime('now')
          FROM jobs j
          LEFT JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = ?
-         WHERE j.source_id = ? AND COALESCE(uj.status, 'new') = 'new' AND uj.notified_at IS NULL
+         WHERE j.source_id = ? AND j.duplicate_of IS NULL
+           AND COALESCE(uj.status, 'new') = 'new' AND uj.notified_at IS NULL
          ON CONFLICT(user_id, job_id) DO UPDATE SET
            notified_at = COALESCE(user_jobs.notified_at, excluded.notified_at)`,
       ).bind(userId, userId, source.id),
@@ -641,7 +732,8 @@ export async function reapplyPrefilter(
     `SELECT j.id, j.title, COALESCE(uj.status, 'new') AS status
      FROM jobs j
      LEFT JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = ?
-     WHERE j.closed_at IS NULL AND COALESCE(uj.status, 'new') IN ('new', 'notified', 'off_profile')`,
+     WHERE j.closed_at IS NULL AND j.duplicate_of IS NULL
+       AND COALESCE(uj.status, 'new') IN ('new', 'notified', 'off_profile')`,
   )
     .bind(userId)
     .all<{ id: string; title: string; status: string }>()

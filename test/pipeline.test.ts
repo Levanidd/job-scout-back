@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { companyKey } from "../src/company-key"
+import { companyKey, companiesRelated, titleKey } from "../src/company-key"
 import { isSuspicious } from "../src/ingest"
 import { passesPrefilter, sanitizeTags } from "../src/prefilter"
 import { sanitizeCompanyBlacklist } from "../src/settings"
@@ -12,6 +12,18 @@ describe("companyKey", () => {
     expect(companyKey("Acme GmbH")).toBe("acme")
     expect(companyKey("Beispiel Bank AG")).toBe("beispiel bank")
     expect(companyKey("Foo, Inc.")).toBe("foo")
+  })
+
+  it("treats a legal name as the same employer as its short slug", () => {
+    expect(companiesRelated("acme", "acme digital")).toBe(true)
+    expect(companiesRelated("pammys dieseo", "pammys")).toBe(true)
+    expect(companiesRelated("acme digital", "acme labs")).toBe(false)
+  })
+
+  it("drops city and gender tags from a role name", () => {
+    expect(titleKey("Senior Product Manager (m/w/d) – Berlin")).toBe("senior product manager")
+    expect(titleKey("Sr. Product Manager")).toBe("senior product manager")
+    expect(titleKey("Product Manager - Growth")).toBe("product manager growth")
   })
 })
 

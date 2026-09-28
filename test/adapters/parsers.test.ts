@@ -237,6 +237,9 @@ describe("adapter parsers", () => {
     expect(dedupKey("parloa", "Senior Product Manager (f/m/x)")).toBe(direct)
     // Seniority is a real difference, not a spelling of the same role.
     expect(dedupKey("Parloa", "Junior Product Manager")).not.toBe(direct)
+    expect(dedupKey("Parloa", "Senior Product Manager (m/w/d) – Berlin")).toBe(direct)
+    expect(dedupKey("Parloa", "Sr. Product Manager")).toBe(direct)
+    expect(dedupKey("Parloa", "Product Manager - Growth")).not.toBe(direct)
     expect(dedupKey("", "Product Manager")).toBe("")
   })
 

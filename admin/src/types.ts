@@ -46,6 +46,19 @@ export type Job = {
   description?: string | null
   tier: Tier
   source_label: string
+  duplicate_of?: string | null
+  duplicates?: JobDuplicate[]
+}
+
+export type JobDuplicate = {
+  id: string
+  url: string
+  title: string
+  company: string
+  source_label: string
+  kind: string
+  first_seen_at: string
+  primary: boolean
 }
 
 export type CompanyFacet = {

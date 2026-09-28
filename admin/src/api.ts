@@ -208,6 +208,10 @@ export const api = {
     return request(`/jobs/${encodeURIComponent(id)}`)
   },
 
+  setJobPrimary(id: string): Promise<{ job: Job }> {
+    return post(`/jobs/${encodeURIComponent(id)}/primary`)
+  },
+
   applied(status?: string): Promise<{ jobs: Job[] }> {
     const query = status ? `?status=${encodeURIComponent(status)}` : ""
     return request(`/applied${query}`)

@@ -2,13 +2,58 @@ import { Hono } from "hono"
 
 import { currentUser } from "../auth"
 import { message } from "../errors"
-import { createManualJob, scoreJobsByIds, scoreOneJob } from "../ingest"
+import { createManualJob, scoreJobsByIds, scoreOneJob, setPrimaryListing } from "../ingest"
 import type { AppEnv } from "../types"
 import { JOB_COLUMNS, JOB_SOURCE, appliedFilters, jobFilters, jobOrder } from "./job-query"
 
 export const jobs = new Hono<AppEnv>()
 
 const STATUSES = ["new", "notified", "saved", "applied", "interview", "rejected", "ignored", "off_profile"]
+
+type DuplicateListing = {
+  id: string
+  url: string
+  title: string
+  company: string
+  source_label: string
+  kind: string
+  first_seen_at: string
+  duplicate_of: string | null
+}
+
+async function loadJobDetail(env: AppEnv["Bindings"], userId: number, id: string) {
+  const row = await env.DB.prepare(
+    `SELECT ${JOB_COLUMNS}, j.description, uj.notes, s.tier, s.label as source_label
+     ${JOB_SOURCE}
+     WHERE j.id = ?`,
+  )
+    .bind(userId, id)
+    .first<Record<string, unknown> & { duplicate_of: string | null }>()
+  if (!row) return null
+
+  const root = row.duplicate_of || id
+  const group = await env.DB.prepare(
+    `SELECT j.id, j.url, j.title, j.company, j.first_seen_at, j.duplicate_of,
+            s.label as source_label, s.kind
+     FROM jobs j JOIN sources s ON s.id = j.source_id
+     WHERE j.id = ? OR j.duplicate_of = ?
+     ORDER BY j.duplicate_of IS NULL DESC, j.first_seen_at ASC`,
+  )
+    .bind(root, root)
+    .all<DuplicateListing>()
+
+  const duplicates = group.results.map((item) => ({
+    id: item.id,
+    url: item.url,
+    title: item.title,
+    company: item.company,
+    source_label: item.source_label,
+    kind: item.kind,
+    first_seen_at: item.first_seen_at,
+    primary: !item.duplicate_of,
+  }))
+  return { ...row, duplicates }
+}
 
 jobs.get("/api/applied", async (c) => {
   const userId = currentUser(c).id
@@ -95,15 +140,9 @@ jobs.post("/api/jobs/score", async (c) => {
 })
 
 jobs.get("/api/jobs/:id", async (c) => {
-  const row = await c.env.DB.prepare(
-    `SELECT ${JOB_COLUMNS}, j.description, uj.notes, s.tier, s.label as source_label
-     ${JOB_SOURCE}
-     WHERE j.id = ?`,
-  )
-    .bind(currentUser(c).id, c.req.param("id"))
-    .first()
-  if (!row) return c.json({ error: "not found" }, 404)
-  return c.json({ job: row })
+  const job = await loadJobDetail(c.env, currentUser(c).id, c.req.param("id"))
+  if (!job) return c.json({ error: "not found" }, 404)
+  return c.json({ job })
 })
 
 jobs.patch("/api/jobs/:id", async (c) => {
@@ -179,4 +218,15 @@ jobs.post("/api/jobs/:id/score", async (c) => {
     const detail = message(error)
     return c.json({ error: detail }, detail === "not found" ? 404 : 502)
   }
+})
+
+jobs.post("/api/jobs/:id/primary", async (c) => {
+  const id = c.req.param("id")
+  const exists = await c.env.DB.prepare(`SELECT id FROM jobs WHERE id = ?`).bind(id).first<{ id: string }>()
+  if (!exists) return c.json({ error: "not found" }, 404)
+  const ok = await setPrimaryListing(c.env, id)
+  if (!ok) return c.json({ error: "no duplicates" }, 400)
+  const job = await loadJobDetail(c.env, currentUser(c).id, id)
+  if (!job) return c.json({ error: "not found" }, 404)
+  return c.json({ job })
 })

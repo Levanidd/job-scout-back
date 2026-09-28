@@ -286,6 +286,46 @@ a:hover {
   padding: 12px 14px;
 }
 
+.job-dupes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-input);
+}
+
+.job-dupes-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.job-dupes-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.job-dupe {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.job-dupe-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.job-dupe-body a {
+  font-size: 14px;
+  font-weight: 600;
+}
+
 .form-grid {
   display: grid;
   gap: 12px;

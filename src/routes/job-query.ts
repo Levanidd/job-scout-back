@@ -9,6 +9,7 @@ export type Ctx = Context<AppEnv>
 /** Descriptions run to kilobytes each and no list ever shows them. */
 export const JOB_COLUMNS = `j.id, j.source_id, j.company, j.company_key, j.title, j.location, j.url,
   j.posted_at, j.first_seen_at, j.last_seen_at, j.changed_at, j.salary_min, j.salary_max, j.salary_currency,
+  j.duplicate_of,
   uj.score, uj.score_reason, uj.flags, COALESCE(uj.status, 'new') AS status,
   uj.applied_at, uj.viewed_at, uj.later_at`
 
@@ -38,7 +39,7 @@ export function jobOrder(c: Ctx): string {
 }
 
 export async function jobFilters(c: Ctx, withCompanies: boolean): Promise<Where> {
-  const clauses = ["j.closed_at IS NULL"]
+  const clauses = ["j.closed_at IS NULL", "j.duplicate_of IS NULL"]
   const binds: (string | number)[] = []
   const blocked = await excludeBlockedCompaniesForUser(c.env, currentUser(c).id, "j.company_key")
   clauses.push(blocked.sql)
@@ -77,8 +78,13 @@ export async function jobFilters(c: Ctx, withCompanies: boolean): Promise<Where>
 
   const sourceId = Number(c.req.query("source_id") ?? 0)
   if (sourceId) {
-    clauses.push("j.source_id = ?")
-    binds.push(sourceId)
+    clauses.push(
+      `(j.source_id = ? OR EXISTS (
+         SELECT 1 FROM jobs alt
+         WHERE alt.duplicate_of = j.id AND alt.source_id = ? AND alt.closed_at IS NULL
+       ))`,
+    )
+    binds.push(sourceId, sourceId)
   }
 
   const addedDays = Number(c.req.query("added_days") ?? 0)
@@ -112,7 +118,7 @@ export async function jobFilters(c: Ctx, withCompanies: boolean): Promise<Where>
 
 /** The applied list is its own view: pipeline status instead of the list filters. */
 export async function appliedFilters(c: Ctx): Promise<Where> {
-  const clauses = ["uj.applied_at IS NOT NULL"]
+  const clauses = ["uj.applied_at IS NOT NULL", "j.duplicate_of IS NULL"]
   const binds: (string | number)[] = []
   const blocked = await excludeBlockedCompaniesForUser(c.env, currentUser(c).id, "j.company_key")
   clauses.push(blocked.sql)

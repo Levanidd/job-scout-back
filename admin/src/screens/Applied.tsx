@@ -372,7 +372,15 @@ export function Applied({
 
   if (open) {
     return (
-      <JobCard job={open} onBack={() => setOpen(null)} onPatch={patchOpen}>
+      <JobCard
+        job={open}
+        onBack={() => setOpen(null)}
+        onPatch={patchOpen}
+        onJob={(next) => {
+          setJobs((prev) => prev?.map((item) => (item.id === open.id ? { ...item, ...next } : item)) ?? null)
+          setOpen(next)
+        }}
+      >
         <div className="row">
           <button className="btn btn-sm" onClick={() => onOpenCompany(open)}>
             Все вакансии {open.company}

@@ -147,20 +147,26 @@ describe("upsertJobs", () => {
     ])
   })
 
-  it("leaves the employer's own copy alone when a query board finds the twin", async () => {
+  it("links a query-board copy as a duplicate of the employer's own listing", async () => {
     const company = await addSource()
     await upsertJobs(env, company, [job()], new Set())
 
     const query = await addSource({ kind: "query", provider: "arbeitnow", token: "product" })
     expect(
       await upsertJobs(env, query, [job({ externalId: "9", url: "https://aggregator.example/9" })], new Set()),
-    ).toBe(0)
+    ).toBe(1)
 
-    const stored = await rows<{ url: string }>(env, `SELECT url FROM jobs`)
-    expect(stored).toEqual([{ url: "https://acme.example/jobs/1" }])
+    const stored = await rows<{ url: string; duplicate_of: string | null }>(
+      env,
+      `SELECT url, duplicate_of FROM jobs ORDER BY duplicate_of IS NULL DESC`,
+    )
+    expect(stored).toHaveLength(2)
+    expect(stored[0]).toMatchObject({ url: "https://acme.example/jobs/1", duplicate_of: null })
+    expect(stored[1]).toMatchObject({ url: "https://aggregator.example/9" })
+    expect(stored[1].duplicate_of).toBeTruthy()
   })
 
-  it("replaces an aggregator twin and inherits what the user did to it", async () => {
+  it("keeps the aggregator listing as primary and inherits nothing onto the employer's copy", async () => {
     const query = await addSource({ kind: "query", provider: "arbeitnow", token: "product" })
     await upsertJobs(env, query, [job({ externalId: "9", url: "https://aggregator.example/9" })], new Set())
     const twin = await one<{ id: string }>(env, `SELECT id FROM jobs`)
@@ -179,21 +185,67 @@ describe("upsertJobs", () => {
 
     const stored = await rows<Record<string, unknown>>(
       env,
-      `SELECT j.url, uj.status, uj.applied_at, uj.viewed_at, uj.later_at, uj.notes, uj.score, j.first_seen_at
-       FROM jobs j JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = ?`,
+      `SELECT j.url, j.duplicate_of, j.first_seen_at, uj.status, uj.applied_at, uj.notes, uj.score
+       FROM jobs j LEFT JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = ?
+       ORDER BY j.duplicate_of IS NULL DESC`,
       TEST_USER_ID,
     )
-    expect(stored).toHaveLength(1)
+    expect(stored).toHaveLength(2)
     expect(stored[0]).toMatchObject({
-      url: "https://acme.example/jobs/1",
+      url: "https://aggregator.example/9",
+      duplicate_of: null,
       status: "applied",
       applied_at: "2026-01-02 10:00:00",
-      viewed_at: "2026-01-01 10:00:00",
-      later_at: "2026-01-03 10:00:00",
       notes: "sent CV",
       score: 88,
       first_seen_at: "2025-12-01 00:00:00",
     })
+    expect(stored[1]).toMatchObject({
+      url: "https://acme.example/jobs/1",
+      status: null,
+    })
+    expect(stored[1].duplicate_of).toBe(twin!.id)
+  })
+
+  it("still groups an Arbeitnow copy when the employer name and title are spelled differently", async () => {
+    const query = await addSource({ kind: "query", provider: "arbeitnow", token: "product" })
+    await upsertJobs(
+      env,
+      query,
+      [
+        job({
+          externalId: "9",
+          company: "Acme Digital GmbH",
+          title: "Senior Product Manager (m/w/d) – Berlin",
+          url: "https://www.arbeitnow.com/jobs/acme-spm",
+        }),
+      ],
+      new Set(),
+    )
+
+    const company = await addSource()
+    await upsertJobs(
+      env,
+      company,
+      [job({ company: "Acme", title: "Sr. Product Manager", url: "https://boards.greenhouse.io/acme/jobs/1" })],
+      new Set(),
+    )
+
+    const stored = await rows<{ url: string; company: string; duplicate_of: string | null }>(
+      env,
+      `SELECT url, company, duplicate_of FROM jobs ORDER BY duplicate_of IS NULL DESC`,
+    )
+    expect(stored).toHaveLength(2)
+    expect(stored[0]).toMatchObject({
+      url: "https://www.arbeitnow.com/jobs/acme-spm",
+      company: "Acme Digital GmbH",
+      duplicate_of: null,
+    })
+    expect(stored[1]).toMatchObject({
+      url: "https://boards.greenhouse.io/acme/jobs/1",
+      company: "Acme",
+    })
+    expect(stored[1].duplicate_of).toBeTruthy()
   })
 
   /**
@@ -231,13 +283,20 @@ describe("upsertJobs", () => {
     })
   })
 
-  it("keeps the live copy when the same opening arrives twice from company boards", async () => {
+  it("links a second company-board copy instead of dropping it", async () => {
     const source = await addSource()
     await upsertJobs(env, source, [job()], new Set())
     const other = await addSource({ label: "Acme Careers", provider: "lever", token: "acme" })
 
-    expect(await upsertJobs(env, other, [job({ externalId: "7", url: "https://other.example/7" })], new Set())).toBe(0)
-    expect(await rows(env, `SELECT id FROM jobs`)).toHaveLength(1)
+    expect(await upsertJobs(env, other, [job({ externalId: "7", url: "https://other.example/7" })], new Set())).toBe(1)
+    const stored = await rows<{ url: string; duplicate_of: string | null }>(
+      env,
+      `SELECT url, duplicate_of FROM jobs ORDER BY duplicate_of IS NULL DESC`,
+    )
+    expect(stored).toHaveLength(2)
+    expect(stored[0]).toMatchObject({ url: "https://acme.example/jobs/1", duplicate_of: null })
+    expect(stored[1]).toMatchObject({ url: "https://other.example/7" })
+    expect(stored[1].duplicate_of).toBeTruthy()
   })
 })
 

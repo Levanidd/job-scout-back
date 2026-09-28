@@ -116,7 +116,7 @@ export function periodStart(raw: string | undefined, now = new Date()): string |
 stats.get("/api/stats", async (c) => {
   const userId = currentUser(c).id
   const blocked = await excludeBlockedCompaniesForUser(c.env, userId, "j.company_key")
-  const where = blocked.sql
+  const where = `${blocked.sql} AND j.duplicate_of IS NULL`
   const binds = [userId, ...blocked.binds]
   const join = `FROM jobs j LEFT JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = ?`
 

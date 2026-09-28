@@ -335,6 +335,10 @@ export function Jobs({
         job={card}
         onBack={() => setCard(null)}
         onPatch={(next) => patchJob(card.id, next)}
+        onJob={(next) => {
+          setJobs((prev) => prev?.map((item) => (item.id === card.id ? { ...item, ...next } : item)) ?? null)
+          setCard(next)
+        }}
         scoreExtra={
           <button
             type="button"
