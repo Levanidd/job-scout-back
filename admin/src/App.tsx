@@ -58,7 +58,11 @@ export default function App() {
   // filters; picking the tab by hand always starts from the default view.
   const [preset, setPreset] = useState<{ filters: JobFilters; seq: number } | null>(null)
   // Same idea for the applied list, which the Stats tab opens on one bucket.
-  const [appliedPreset, setAppliedPreset] = useState<{ status: PipeFilter; seq: number } | null>(null)
+  const [appliedPreset, setAppliedPreset] = useState<{
+    status: PipeFilter
+    interviewed?: "yes" | "no"
+    seq: number
+  } | null>(null)
   const [toast, setToast] = useState<Toast | null>(null)
   const [running, setRunning] = useState(false)
   const [run, setRun] = useState<RunState | null>(null)
@@ -152,8 +156,8 @@ export default function App() {
     setTab("jobs")
   }
 
-  function openApplied(status: PipeFilter) {
-    setAppliedPreset((prev) => ({ status, seq: (prev?.seq ?? 0) + 1 }))
+  function openApplied(status: PipeFilter, interviewed?: "yes" | "no") {
+    setAppliedPreset((prev) => ({ status, interviewed, seq: (prev?.seq ?? 0) + 1 }))
     setTab("applied")
   }
 
@@ -250,7 +254,11 @@ export default function App() {
           {tab === "applied" ? (
             <Applied
               key={appliedPreset?.seq ?? "all"}
-              preset={appliedPreset?.status}
+              preset={
+                appliedPreset
+                  ? { status: appliedPreset.status, interviewed: appliedPreset.interviewed }
+                  : undefined
+              }
               onOpenCompany={openCompanyJobs}
             />
           ) : null}

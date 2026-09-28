@@ -213,9 +213,12 @@ export const api = {
     return post(`/jobs/${encodeURIComponent(id)}/primary`)
   },
 
-  applied(status?: string): Promise<{ jobs: Job[] }> {
-    const query = status ? `?status=${encodeURIComponent(status)}` : ""
-    return request(`/applied${query}`)
+  applied(status?: string, interviewed?: "yes" | "no"): Promise<{ jobs: Job[] }> {
+    const params = new URLSearchParams()
+    if (status) params.set("status", status)
+    if (interviewed) params.set("interviewed", interviewed)
+    const query = params.toString()
+    return request(`/applied${query ? `?${query}` : ""}`)
   },
 
   stats(days?: number): Promise<JobStats> {

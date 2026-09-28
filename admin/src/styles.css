@@ -551,13 +551,6 @@ a:hover {
   padding: 0 10px;
 }
 
-.status-marks {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-}
-
 .score {
   display: inline-flex;
   align-items: center;

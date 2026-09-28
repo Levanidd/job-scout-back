@@ -171,7 +171,11 @@ function Chart({
   )
 }
 
-export function Stats({ onOpenApplied }: { onOpenApplied: (status: PipeFilter) => void }) {
+export function Stats({
+  onOpenApplied,
+}: {
+  onOpenApplied: (status: PipeFilter, interviewed?: "yes" | "no") => void
+}) {
   const run = useAction()
   const [stats, setStats] = useState<JobStats | null>(null)
   const [period, setPeriod] = usePersistentState<PeriodId>(
@@ -294,7 +298,7 @@ export function Stats({ onOpenApplied }: { onOpenApplied: (status: PipeFilter) =
                 ? `${pct(stats.pipeline.rejected, stats.applied)} от откликов · без собеса`
                 : "появятся после откликов"
             }
-            onOpen={() => onOpenApplied("rejected")}
+            onOpen={() => onOpenApplied("rejected", "no")}
           />
         </div>
       </article>

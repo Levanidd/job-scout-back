@@ -131,7 +131,11 @@ export async function appliedFilters(c: Ctx): Promise<Where> {
     // A rejection after an interview still belongs here: that is the собес.
     clauses.push("(uj.status = 'interview' OR uj.interviewed_at IS NOT NULL)")
   } else if (status === "rejected") {
-    clauses.push("uj.status = 'rejected' AND uj.interviewed_at IS NULL")
+    clauses.push("uj.status = 'rejected'")
   }
+
+  const interviewed = c.req.query("interviewed")
+  if (interviewed === "yes") clauses.push("uj.interviewed_at IS NOT NULL")
+  if (interviewed === "no") clauses.push("uj.interviewed_at IS NULL")
   return { clauses: clauses.join(" AND "), binds }
 }

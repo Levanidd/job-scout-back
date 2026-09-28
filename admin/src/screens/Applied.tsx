@@ -15,6 +15,7 @@ function todayLocal(): string {
 }
 
 export type PipeFilter = "" | "applied" | "interview" | "rejected"
+export type InterviewedFilter = "" | "yes" | "no"
 
 const PIPE: Array<{ id: PipeFilter; label: string }> = [
   { id: "", label: "Все" },
@@ -276,7 +277,7 @@ export function Applied({
   preset,
   onOpenCompany,
 }: {
-  preset?: PipeFilter
+  preset?: { status?: PipeFilter; interviewed?: InterviewedFilter }
   onOpenCompany: (company: { company_key: string }) => void
 }) {
   const run = useAction()
@@ -284,8 +285,14 @@ export function Applied({
   // clicking a number — that pick should not become tomorrow's default view.
   const [status, setStatus] = usePersistentState<PipeFilter>(
     "applied.status",
-    preset ?? "",
+    preset?.status ?? "",
     oneOf("", "applied", "interview", "rejected"),
+    { store: !preset },
+  )
+  const [interviewed, setInterviewed] = usePersistentState<InterviewedFilter>(
+    "applied.interviewed",
+    preset?.interviewed ?? "",
+    oneOf("", "yes", "no"),
     { store: !preset },
   )
   const [jobs, setJobs] = useState<Job[] | null>(null)
@@ -315,10 +322,11 @@ export function Applied({
   const load = useCallback(
     async (silent = false) => {
       if (!silent) setJobs(null)
-      const result = await run(() => api.applied(status || undefined))
+      const interviewedFilter = status === "rejected" && interviewed ? interviewed : undefined
+      const result = await run(() => api.applied(status || undefined, interviewedFilter))
       if (result) setJobs(result.jobs)
     },
-    [run, status],
+    [run, status, interviewed],
   )
 
   useLoader(load)
@@ -349,9 +357,20 @@ export function Applied({
       (prev) =>
         prev
           ?.map((item) => (item.id === job.id ? { ...item, ...update } : item))
-          .filter((item) => !status || item.status === status) ?? null,
+          .filter((item) => {
+            if (status === "applied") return item.status === "applied"
+            if (status === "interview") return item.status === "interview" || Boolean(item.interviewed_at)
+            if (status === "rejected") {
+              if (item.status !== "rejected") return false
+              if (interviewed === "yes") return Boolean(item.interviewed_at)
+              if (interviewed === "no") return !item.interviewed_at
+            }
+            return true
+          }) ?? null,
     )
-    if (status && result.status !== status) setOpen(null)
+    if (status === "applied" && result.status !== "applied") setOpen(null)
+    if (status === "rejected" && result.status !== "rejected") setOpen(null)
+    if (status === "interview" && result.status !== "interview" && !result.interviewed_at) setOpen(null)
   }
 
   if (composing) {
@@ -415,6 +434,18 @@ export function Applied({
             {item.label}
           </button>
         ))}
+        {status === "rejected" ? (
+          <select
+            className="select select-inline"
+            aria-label="Собес"
+            value={interviewed}
+            onChange={(event) => setInterviewed(event.target.value as InterviewedFilter)}
+          >
+            <option value="">Все</option>
+            <option value="yes">Был собес</option>
+            <option value="no">Без собеса</option>
+          </select>
+        ) : null}
         <button className="btn btn-primary btn-sm" onClick={() => setComposing(true)}>
           Добавить вакансию
         </button>
@@ -466,6 +497,11 @@ export function Applied({
                   title="Когда вы отметили отклик"
                 />
                 <SortHeader column="status" label="Статус" sort={sort} dir={dir} onSort={sortBy} />
+                {status === "rejected" ? (
+                  <th className="col-check" title="До отказа было собеседование">
+                    Собес
+                  </th>
+                ) : null}
                 <th className="col-more" />
               </tr>
             </thead>
@@ -507,13 +543,21 @@ export function Applied({
                     <Age value={job.applied_at} warnAfter={14} />
                   </td>
                   <td>
-                    <div className="status-marks">
-                      <span className="badge badge-neutral badge-cell">{pipeLabel(job.status)}</span>
-                      {job.interviewed_at && job.status !== "interview" ? (
-                        <span className="badge badge-accent badge-cell">был собес</span>
-                      ) : null}
-                    </div>
+                    <span className="badge badge-neutral badge-cell">{pipeLabel(job.status)}</span>
                   </td>
+                  {status === "rejected" ? (
+                    <td className="col-check">
+                      <input
+                        type="checkbox"
+                        className="checkbox"
+                        checked={Boolean(job.interviewed_at)}
+                        readOnly
+                        tabIndex={-1}
+                        aria-label={job.interviewed_at ? `Был собес: ${job.title}` : `Собеса не было: ${job.title}`}
+                        onClick={(event) => event.preventDefault()}
+                      />
+                    </td>
+                  ) : null}
                   <td className="col-more">
                     <button className="btn btn-ghost btn-sm" onClick={() => void openCard(job)}>
                       Карточка

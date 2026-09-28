@@ -208,7 +208,9 @@ describe("jobs", () => {
 
     expect((await call("/api/stats")).body.pipeline).toMatchObject({ waiting: 0, interview: 1, rejected: 0 })
     expect((await call("/api/applied?status=interview")).body.jobs).toHaveLength(1)
-    expect((await call("/api/applied?status=rejected")).body.jobs).toHaveLength(0)
+    expect((await call("/api/applied?status=rejected")).body.jobs).toHaveLength(1)
+    expect((await call("/api/applied?status=rejected&interviewed=yes")).body.jobs).toHaveLength(1)
+    expect((await call("/api/applied?status=rejected&interviewed=no")).body.jobs).toHaveLength(0)
     expect((await call(`/api/jobs/${id}`)).body.job.interviewed_at).toBe(interview.body.interviewed_at)
   })
 
