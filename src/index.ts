@@ -9,6 +9,7 @@ import { profile } from "./routes/profile"
 import { run } from "./routes/run"
 import { sources } from "./routes/sources"
 import { stats } from "./routes/stats"
+import { mcp } from "./routes/mcp"
 import { users } from "./routes/users"
 import type { AppEnv } from "./types"
 import { resolveAuth } from "./users"
@@ -31,6 +32,7 @@ app.use("/api/*", async (c, next) => {
 app.get("/api/health", (c) => c.json({ ok: true, service: "jobradar", time: new Date().toISOString() }))
 
 app.route("/", users)
+app.route("/", mcp)
 app.route("/", sources)
 app.route("/", discovery)
 app.route("/", jobs)

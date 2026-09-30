@@ -107,9 +107,27 @@ deploy command `npx wrangler deploy`. Отдельно катить руками
 | POST | `/api/profile/rescore` | обнулить score и пересчитать |
 | PUT | `/api/settings` | модель Gemini — только мастер |
 | GET | `/api/runs` | последние 50 прогонов |
+| POST | `/api/mcp` | MCP для Клода и Cursor: только чтение базы. Инструменты `schema` и `query` (один SELECT) |
 
 Роуты разложены по доменам в `src/routes/`; `src/index.ts` только собирает приложение,
 проверяет токен и ловит ошибки.
+
+Подключение MCP — тот же адрес воркера и личный токен, что у админки. Запись через этот
+эндпоинт не проходит.
+
+```json
+{
+  "mcpServers": {
+    "jobradar": {
+      "url": "https://<воркер>/api/mcp",
+      "headers": { "Authorization": "Bearer <личный токен>" }
+    }
+  }
+}
+```
+
+В Claude Code: `claude mcp add --transport http jobradar https://<воркер>/api/mcp --header "Authorization: Bearer <личный токен>"`.
+В Cursor тот же JSON кладётся в MCP settings. Токен в репозиторий не коммитьте.
 
 Первый прогон источника с `bootstrapped=0` не шлёт уведомления (холодный старт).
 
