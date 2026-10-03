@@ -44,28 +44,35 @@ async function loadDueSources(db: D1Database): Promise<SourceRow[]> {
 }
 
 /**
- * Aggregators spell the employer differently from the ATS, so an exact
- * `dedup_key` lookup misses the twin. Pull rows of the other kind whose
- * company could be this one, then match on the role name in JS.
+ * D1 rejects a LIKE pattern longer than 50 bytes. A name match is a prefix
+ * ("acme" covers "acme digital"), which is the same as a range: everything
+ * from "acme " up to, but not including, "acme!". One statement can also bind
+ * at most 100 values, so a full board is walked in slices.
  */
+const TWIN_CHUNK = 20
+
 async function loadRelatedTwins(env: Bindings, keys: string[], kind: "query" | "company"): Promise<TwinRow[]> {
   const unique = [...new Set(keys.filter(Boolean))]
   if (unique.length === 0) return []
-  const prefixes = [...new Set(unique.flatMap((key) => [key, key.split(" ")[0] ?? key]))]
-  const likes = unique.map((key) => `${key} %`)
-  const clause = [
-    `j.company_key IN (${placeholders(prefixes.length)})`,
-    ...likes.map(() => "j.company_key LIKE ?"),
-  ].join(" OR ")
-  const res = await env.DB.prepare(
-    `SELECT j.id, j.company_key, j.title, s.kind, j.first_seen_at, j.closed_at, j.duplicate_of
-     FROM jobs j JOIN sources s ON s.id = j.source_id
-     WHERE s.kind = ? AND (${clause})
-     ORDER BY j.closed_at IS NULL DESC, j.closed_at DESC`,
-  )
-    .bind(kind, ...prefixes, ...likes)
-    .all<TwinRow>()
-  return res.results
+  const out: TwinRow[] = []
+  for (const part of chunk(unique, TWIN_CHUNK)) {
+    const exact = [...new Set(part.flatMap((key) => [key, key.split(" ")[0] ?? key]))]
+    const ranges = part.flatMap((key) => [`${key} `, `${key}!`])
+    const clause = [
+      `j.company_key IN (${placeholders(exact.length)})`,
+      ...part.map(() => `(j.company_key >= ? AND j.company_key < ?)`),
+    ].join(" OR ")
+    const res = await env.DB.prepare(
+      `SELECT j.id, j.company_key, j.title, s.kind, j.first_seen_at, j.closed_at, j.duplicate_of
+       FROM jobs j JOIN sources s ON s.id = j.source_id
+       WHERE s.kind = ? AND (${clause})
+       ORDER BY j.closed_at IS NULL DESC, j.closed_at DESC`,
+    )
+      .bind(kind, ...exact, ...ranges)
+      .all<TwinRow>()
+    out.push(...res.results)
+  }
+  return out
 }
 
 export function isSuspicious(lastCount: number | null, found: number): boolean {

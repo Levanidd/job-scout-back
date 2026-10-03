@@ -248,6 +248,43 @@ describe("upsertJobs", () => {
     expect(stored[1].duplicate_of).toBeTruthy()
   })
 
+  it("groups a long legal name that would not fit in a D1 LIKE pattern", async () => {
+    const query = await addSource({
+      kind: "query",
+      provider: "arbeitnow",
+      token: "was=Product+Manager&wo=Berlin&umkreis=100&angebotsart=1&pav=false",
+    })
+    await upsertJobs(
+      env,
+      query,
+      [
+        job({
+          externalId: "9",
+          company: "Acme Digital Solutions International Holdings Group GmbH",
+          title: "Senior Product Manager",
+          url: "https://www.arbeitnow.com/jobs/acme-spm",
+        }),
+      ],
+      new Set(),
+    )
+
+    const company = await addSource()
+    await upsertJobs(
+      env,
+      company,
+      [job({ company: "Acme", title: "Senior Product Manager", url: "https://boards.greenhouse.io/acme/jobs/1" })],
+      new Set(),
+    )
+
+    const stored = await rows<{ company: string; duplicate_of: string | null }>(
+      env,
+      `SELECT company, duplicate_of FROM jobs ORDER BY duplicate_of IS NULL DESC`,
+    )
+    expect(stored).toHaveLength(2)
+    expect(stored[0].duplicate_of).toBeNull()
+    expect(stored[1].duplicate_of).toBeTruthy()
+  })
+
   /**
    * The board took the opening down and put it back under a new id, which is how
    * an opening someone already applied to came back looking brand new.
