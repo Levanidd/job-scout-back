@@ -34,6 +34,13 @@ export const EXPLORE_CATALOG: Array<{
     sourceLabel: "Arbeitsagentur · PM Berlin",
   },
   {
+    provider: "amazon",
+    label: "Amazon",
+    token:
+      "normalized_country_code%5B%5D=DEU&normalized_city_name%5B%5D=Berlin&category%5B%5D=project-program-product-management-non-tech",
+    sourceLabel: "Amazon · Berlin · Product",
+  },
+  {
     provider: "adzuna",
     label: "Adzuna",
     token: "what=product%20manager&where=berlin",

@@ -17,6 +17,7 @@ import { parseTheHub } from "../../src/adapters/thehub"
 import { parseWeWorkRemotely } from "../../src/adapters/weworkremotely"
 import { parseWorkable } from "../../src/adapters/workable"
 import { parseAdzuna } from "../../src/adapters/adzuna"
+import { amazonCategorySlug, amazonToken, parseAmazon } from "../../src/adapters/amazon"
 import { readWorkdayDescription, workdayDetailUrl } from "../../src/adapters/workday"
 import { detectToken } from "../../src/adapters"
 import { labelFromUrl } from "../../src/adapters/career-ops"
@@ -298,6 +299,77 @@ describe("adapter parsers", () => {
       ],
     })
     expect(jobs[0]?.salary).toEqual({ min: 80_000, max: 110_000, currency: "EUR" })
+  })
+})
+
+describe("amazon jobs", () => {
+  const page = new URL(
+    "https://www.amazon.jobs/content/en/locations/germany/berlin?region%5B%5D=Berlin&category%5B%5D=Project%2FProgram%2FProduct+Management--Non-Tech",
+  )
+
+  it("turns the Berlin product page into the search filters", () => {
+    expect(amazonCategorySlug("Project/Program/Product Management--Non-Tech")).toBe(
+      "project-program-product-management-non-tech",
+    )
+    expect(amazonToken(page)).toBe(
+      "normalized_country_code%5B%5D=DEU&normalized_city_name%5B%5D=Berlin&category%5B%5D=project-program-product-management-non-tech",
+    )
+    expect(detectToken(page)).toEqual({
+      provider: "amazon",
+      token: amazonToken(page),
+    })
+  })
+
+  it("reads a search.json posting, including the qualifications", () => {
+    const jobs = parseAmazon({
+      hits: 1,
+      jobs: [
+        {
+          id_icims: "10526434",
+          title: "Security Assurance Specialist",
+          company_name: "AWS EMEA SARL (Germany Branch)",
+          normalized_location: "Berlin, Berlin, DEU",
+          job_path: "/en/jobs/10526434/security-assurance-specialist",
+          posted_date: "September 2, 2026",
+          description: "<p>Own the control set.</p>",
+          basic_qualifications: "English C1",
+          preferred_qualifications: "AWS experience",
+        },
+      ],
+    })
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0]).toMatchObject({
+      externalId: "10526434",
+      company: "AWS EMEA SARL (Germany Branch)",
+      location: "Berlin, Berlin, DEU",
+      url: "https://www.amazon.jobs/en/jobs/10526434/security-assurance-specialist",
+    })
+    expect(jobs[0]?.description).toContain("Own the control set.")
+    expect(jobs[0]?.description).toContain("English C1")
+    expect(jobs[0]?.description).toContain("AWS experience")
+    expect(jobs[0]?.postedAt?.slice(0, 10)).toBe("2026-09-02")
+  })
+})
+
+describe("new career-ops boards", () => {
+  it("recognises the boards their host gives away", () => {
+    expect(
+      detectToken(new URL("https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/jobs")),
+    ).toMatchObject({ provider: "oraclecloud" })
+    expect(detectToken(new URL("https://careers-acme.icims.com/jobs/search?ss=1"))).toMatchObject({
+      provider: "icims",
+    })
+    expect(detectToken(new URL("https://acme.applytojob.com/apply"))).toMatchObject({ provider: "jazzhr" })
+    expect(detectToken(new URL("https://acme.taleo.net/careersection/2/jobsearch.ftl"))).toMatchObject({
+      provider: "taleo",
+    })
+    expect(
+      detectToken(new URL("https://recruiting.ultipro.com/ACM1000/JobBoard/board-id/OpportunityList")),
+    ).toMatchObject({ provider: "ultipro" })
+    expect(detectToken(new URL("https://career5.successfactors.eu/career?company=acme"))).toMatchObject({
+      provider: "successfactors",
+    })
+    expect(detectToken(new URL("https://jobs.jobvite.com/acme"))).toMatchObject({ provider: "jobvite" })
   })
 })
 

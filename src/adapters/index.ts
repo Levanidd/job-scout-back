@@ -2,6 +2,7 @@ import type { Adapter } from "../types"
 import { fourdayweek } from "./4dayweek"
 import { adzuna } from "./adzuna"
 import { arbeitsagentur } from "./arbeitsagentur"
+import { amazon } from "./amazon"
 import { arbeitnow } from "./arbeitnow"
 import { ashby } from "./ashby"
 import { bamboohr } from "./bamboohr"
@@ -15,8 +16,11 @@ import { getonbrd } from "./getonbrd"
 import { getro } from "./getro"
 import { greenhouse } from "./greenhouse"
 import { himalayas } from "./himalayas"
+import { icims } from "./icims"
 import { jobicy } from "./jobicy"
+import { jobvite } from "./jobvite"
 import { join } from "./join"
+import { jazzhr } from "./jazzhr"
 import { joinup } from "./joinup"
 import { justjoin } from "./justjoin"
 import { landingjobs } from "./landingjobs"
@@ -25,7 +29,9 @@ import { manfred } from "./manfred"
 import { manual } from "./manual"
 import { nodesk } from "./nodesk"
 import { nofluffjobs } from "./nofluffjobs"
+import { oraclecloud } from "./oraclecloud"
 import { personio } from "./personio"
+import { phenom } from "./phenom"
 import { pinpoint } from "./pinpoint"
 import { recruitee } from "./recruitee"
 import { remoteok } from "./remoteok"
@@ -35,8 +41,11 @@ import { rippling } from "./rippling"
 import { rss } from "./rss"
 import { smartrecruiters } from "./smartrecruiters"
 import { softgarden } from "./softgarden"
+import { successfactors } from "./successfactors"
+import { taleo } from "./taleo"
 import { teamtailor } from "./teamtailor"
 import { thehub } from "./thehub"
+import { ultipro } from "./ultipro"
 import { weworkremotely } from "./weworkremotely"
 import { workable } from "./workable"
 import { workday } from "./workday"
@@ -54,6 +63,9 @@ export const adapters: Adapter[] = [
   join,
   teamtailor,
   softgarden,
+  successfactors,
+  taleo,
+  ultipro,
   workday,
   breezy,
   bamboohr,
@@ -61,8 +73,12 @@ export const adapters: Adapter[] = [
   rippling,
   gem,
   eightfold,
+  icims,
+  jazzhr,
+  jobvite,
   beesite,
   arbeitsagentur,
+  amazon,
   arbeitnow,
   adzuna,
   himalayas,
@@ -78,6 +94,8 @@ export const adapters: Adapter[] = [
   fourdayweek,
   justjoin,
   nofluffjobs,
+  oraclecloud,
+  phenom,
   manfred,
   remotli,
   getonbrd,
