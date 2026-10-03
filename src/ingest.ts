@@ -1,4 +1,5 @@
 import { getAdapter } from "./adapters"
+import { fetchWorkdayDescription, workdayDetailUrl } from "./adapters/workday"
 import { companyKey, companiesRelated, dedupKey, jobHash, titleKey } from "./company-key"
 import { chunk, placeholders, runBatch, selectIn } from "./db"
 import { message } from "./errors"
@@ -524,6 +525,8 @@ type Candidate = {
   company_key: string
   title: string
   location: string | null
+  url: string
+  description: string | null
   dedup_key: string | null
 }
 
@@ -577,6 +580,36 @@ async function profileContent(env: Bindings, userId: number): Promise<string> {
   return row?.content ?? ""
 }
 
+/** How many Workday detail pages to open at once. The board rate-limits bursts. */
+const WORKDAY_DETAIL_CONCURRENCY = 4
+
+/**
+ * The listing we stored has no body. Pull it before the model runs and keep it,
+ * so the card and a later rescore don't fetch it again.
+ */
+async function fillWorkdayDescriptions(
+  env: Bindings,
+  rows: Array<{ id: string; url: string; description: string | null }>,
+): Promise<Map<string, string>> {
+  const missing = rows.filter((row) => !row.description && workdayDetailUrl(row.url))
+  const found = new Map<string, string>()
+  const writes: D1PreparedStatement[] = []
+  for (const part of chunk(missing, WORKDAY_DETAIL_CONCURRENCY)) {
+    const fetched = await Promise.all(
+      part.map(async (row) => ({ id: row.id, text: await fetchWorkdayDescription(row.url) })),
+    )
+    for (const item of fetched) {
+      if (!item.text) continue
+      found.set(item.id, item.text)
+      writes.push(
+        env.DB.prepare(`UPDATE jobs SET description = ? WHERE id = ? AND description IS NULL`).bind(item.text, item.id),
+      )
+    }
+  }
+  await runBatch(env, writes)
+  return found
+}
+
 /**
  * Scores what the prefilter lets through. `limit` caps how many jobs reach the
  * model in one pass, so a caller that wants to report progress can walk the
@@ -586,7 +619,7 @@ export async function prefilterAndScore(env: Bindings, userId: number, limit?: n
   const blocked = await excludeBlockedCompaniesForUser(env, userId, "j.company_key")
 
   const open = await env.DB.prepare(
-    `SELECT j.id, j.company, j.company_key, j.title, j.location, j.dedup_key
+    `SELECT j.id, j.company, j.company_key, j.title, j.location, j.url, j.description, j.dedup_key
      FROM jobs j
      LEFT JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = ?
      WHERE j.closed_at IS NULL AND j.duplicate_of IS NULL AND uj.score IS NULL
@@ -618,7 +651,10 @@ export async function prefilterAndScore(env: Bindings, userId: number, limit?: n
 
   for (const job of candidates) {
     const key = job.dedup_key
-    if (key) {
+    // A Workday row scored from the title alone has to be judged again once
+    // its posting body is available. Inheriting that old verdict would skip it.
+    const needsText = !job.description && Boolean(workdayDetailUrl(job.url))
+    if (key && !needsText) {
       const known = verdicts.get(key)
       if (known) {
         inherited.push(verdictUpdate(env, userId, job.id, known))
@@ -651,12 +687,14 @@ export async function prefilterAndScore(env: Bindings, userId: number, limit?: n
   const remaining = toScore.length - batch.length
 
   if (batch.length > 0) {
-    const bodies = await selectIn<{ id: string; description: string | null }>(
+    const bodies = await selectIn<{ id: string; url: string; description: string | null }>(
       env,
-      (list) => `SELECT id, description FROM jobs WHERE id IN (${list})`,
+      (list) => `SELECT id, url, description FROM jobs WHERE id IN (${list})`,
       batch.map((item) => item.id),
     )
+    const filled = await fillWorkdayDescriptions(env, bodies)
     const byId = new Map(bodies.map((row) => [row.id, row.description ?? ""]))
+    for (const [id, text] of filled) byId.set(id, text)
     for (const item of batch) {
       item.input.description = byId.get(item.id) ?? ""
     }
@@ -785,7 +823,7 @@ export async function scoreJobsByIds(env: Bindings, ids: string[], userId: numbe
   if (unique.length === 0) return []
 
   const rows = await env.DB.prepare(
-    `SELECT j.id, j.company, j.company_key, j.title, j.location, j.description, j.closed_at,
+    `SELECT j.id, j.company, j.company_key, j.title, j.location, j.url, j.description, j.closed_at,
             COALESCE(uj.status, 'new') AS status
      FROM jobs j
      LEFT JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = ?
@@ -798,19 +836,21 @@ export async function scoreJobsByIds(env: Bindings, ids: string[], userId: numbe
       company_key: string
       title: string
       location: string | null
+      url: string
       description: string | null
       status: string
       closed_at: string | null
     }>()
   if (rows.results.length === 0) throw new Error("not found")
 
+  const filled = await fillWorkdayDescriptions(env, rows.results)
   const scores = await scoreJobs(
     rows.results.map((job) => ({
       external_id: job.id,
       title: job.title,
       company: job.company,
       location: job.location ?? "",
-      description: job.description ?? "",
+      description: filled.get(job.id) ?? job.description ?? "",
     })),
     await profileContent(env, userId),
     await resolveScoringConfig(env),

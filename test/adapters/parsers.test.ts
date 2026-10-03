@@ -17,6 +17,7 @@ import { parseTheHub } from "../../src/adapters/thehub"
 import { parseWeWorkRemotely } from "../../src/adapters/weworkremotely"
 import { parseWorkable } from "../../src/adapters/workable"
 import { parseAdzuna } from "../../src/adapters/adzuna"
+import { readWorkdayDescription, workdayDetailUrl } from "../../src/adapters/workday"
 import { detectToken } from "../../src/adapters"
 import { labelFromUrl } from "../../src/adapters/career-ops"
 import { dedupKey } from "../../src/company-key"
@@ -297,5 +298,26 @@ describe("adapter parsers", () => {
       ],
     })
     expect(jobs[0]?.salary).toEqual({ min: 80_000, max: 110_000, currency: "EUR" })
+  })
+})
+
+describe("workday descriptions", () => {
+  it("builds the detail URL from a posting link and reads the body", () => {
+    expect(
+      workdayDetailUrl(
+        "https://db.wd3.myworkdayjobs.com/DBWebsite/job/London-10-Upper-Bank-Street/Business-Functional-Analyst_R0438608-1",
+      ),
+    ).toBe(
+      "https://db.wd3.myworkdayjobs.com/wday/cxs/db/DBWebsite/job/London-10-Upper-Bank-Street/Business-Functional-Analyst_R0438608-1",
+    )
+    expect(workdayDetailUrl("https://db.wd3.myworkdayjobs.com/en-US/DBWebsite/job/Berlin/Role_R1")).toBe(
+      "https://db.wd3.myworkdayjobs.com/wday/cxs/db/DBWebsite/job/Berlin/Role_R1",
+    )
+    expect(workdayDetailUrl("https://boards.greenhouse.io/acme/jobs/1")).toBeNull()
+    expect(
+      readWorkdayDescription({
+        jobPostingInfo: { jobDescription: "<p><b>Job Title</b> Analyst</p><p>Build the ledger.</p>" },
+      }),
+    ).toBe("Job Title Analyst Build the ledger.")
   })
 })
