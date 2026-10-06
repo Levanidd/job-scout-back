@@ -68,7 +68,7 @@ function markOf(filters: JobFilters): MarkFilter {
 }
 
 const DEFAULT_FILTERS: JobFilters = {
-  min_score: 55,
+  min_score: 50,
   sort: "score",
   dir: "desc",
   ...markFlags("new"),
@@ -98,7 +98,7 @@ function reviveFilters(raw: unknown): JobFilters | undefined {
   return {
     status: status === "any" || FILTER_STATUSES.includes(status as JobStatus) ? status : undefined,
     tier: str(stored.tier),
-    min_score: num(stored.min_score) ?? 0,
+    min_score: num(stored.min_score) === 55 ? 50 : (num(stored.min_score) ?? 0),
     added_days: num(stored.added_days),
     added_from: str(stored.added_from),
     // These three used to be separate dropdowns; they are one mark now, so
@@ -405,7 +405,7 @@ export function Jobs({
         >
           <option value="0">Все</option>
           <option value="40">От 40</option>
-          <option value="55">От 55</option>
+          <option value="50">От 50</option>
           <option value="70">От 70</option>
           <option value="85">От 85</option>
         </select>
