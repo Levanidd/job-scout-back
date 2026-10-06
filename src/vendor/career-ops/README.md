@@ -37,6 +37,9 @@ configured by hand in `portals.yml`. We instead recognise them from the page:
 `src/detect.ts` matches the Getro CDN and the Consider board blob, and the
 adapters resolve the rest — Getro reads its collection id from the markup on
 its own, and `src/adapters/consider.ts` lifts the board id out of the page.
+`radancy` (TalentBrew) is the same story on an employer's own domain: the
+Radancy CDN on the page gives it away, and that marker is checked before the
+others because group sites also link their subsidiaries' Greenhouse boards.
 
 ## Known gaps
 

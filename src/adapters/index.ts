@@ -1,5 +1,8 @@
 import type { Adapter } from "../types"
 import { fourdayweek } from "./4dayweek"
+import { a16zSpeedrun } from "./a16z-speedrun"
+import { adpWorkforcenow } from "./adp-workforcenow"
+import { avature } from "./avature"
 import { adzuna } from "./adzuna"
 import { arbeitsagentur } from "./arbeitsagentur"
 import { amazon } from "./amazon"
@@ -8,14 +11,22 @@ import { ashby } from "./ashby"
 import { bamboohr } from "./bamboohr"
 import { beesite } from "./beesite"
 import { breezy } from "./breezy"
+import { comeet } from "./comeet"
 import { consider } from "./consider"
+import { csod } from "./csod"
+import { dassault } from "./dassault"
+import { deutschebahn } from "./deutschebahn"
 import { eightfold } from "./eightfold"
 import { flowxtra } from "./flowxtra"
 import { gem } from "./gem"
+import { generalistWorld } from "./generalist-world"
 import { getonbrd } from "./getonbrd"
 import { getro } from "./getro"
 import { greenhouse } from "./greenhouse"
+import { hackernews } from "./hackernews"
+import { hecklerkoch } from "./hecklerkoch"
 import { himalayas } from "./himalayas"
+import { ibm } from "./ibm"
 import { icims } from "./icims"
 import { jobicy } from "./jobicy"
 import { jobvite } from "./jobvite"
@@ -33,18 +44,23 @@ import { oraclecloud } from "./oraclecloud"
 import { personio } from "./personio"
 import { phenom } from "./phenom"
 import { pinpoint } from "./pinpoint"
+import { radancy } from "./radancy"
 import { recruitee } from "./recruitee"
 import { remoteok } from "./remoteok"
 import { remotli } from "./remotli"
 import { remotive } from "./remotive"
+import { rheinmetall } from "./rheinmetall"
 import { rippling } from "./rippling"
 import { rss } from "./rss"
 import { smartrecruiters } from "./smartrecruiters"
 import { softgarden } from "./softgarden"
+import { startupJobs } from "./startup-jobs"
 import { successfactors } from "./successfactors"
 import { taleo } from "./taleo"
 import { teamtailor } from "./teamtailor"
+import { telegram } from "./telegram-channel"
 import { thehub } from "./thehub"
+import { tkms } from "./tkms"
 import { ultipro } from "./ultipro"
 import { weworkremotely } from "./weworkremotely"
 import { workable } from "./workable"
@@ -77,6 +93,17 @@ export const adapters: Adapter[] = [
   jazzhr,
   jobvite,
   beesite,
+  avature,
+  radancy,
+  csod,
+  comeet,
+  adpWorkforcenow,
+  deutschebahn,
+  rheinmetall,
+  hecklerkoch,
+  tkms,
+  ibm,
+  dassault,
   arbeitsagentur,
   amazon,
   arbeitnow,
@@ -102,6 +129,11 @@ export const adapters: Adapter[] = [
   flowxtra,
   nodesk,
   joinup,
+  startupJobs,
+  a16zSpeedrun,
+  generalistWorld,
+  hackernews,
+  telegram,
   // Must precede rss, whose detect() would claim /remote-jobs.rss first.
   weworkremotely,
   // Never scraped; exists so hand-entered applications have a source_id.

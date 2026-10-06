@@ -19,6 +19,9 @@ import { parseWorkable } from "../../src/adapters/workable"
 import { parseAdzuna } from "../../src/adapters/adzuna"
 import { amazonCategorySlug, amazonToken, parseAmazon } from "../../src/adapters/amazon"
 import { readWorkdayDescription, workdayDetailUrl } from "../../src/adapters/workday"
+import { ibmFilters } from "../../src/adapters/ibm"
+import { startupJobsToken } from "../../src/adapters/startup-jobs"
+import { telegramChannel } from "../../src/adapters/telegram-channel"
 import { detectToken } from "../../src/adapters"
 import { labelFromUrl } from "../../src/adapters/career-ops"
 import { dedupKey } from "../../src/company-key"
@@ -29,10 +32,14 @@ function load(name: string) {
 }
 
 describe("adapter parsers", () => {
-  it("parses arbeitsagentur openapi example", () => {
+  it("parses arbeitsagentur v6 search", () => {
     const jobs = parseArbeitsagentur(JSON.parse(load("arbeitsagentur.json")))
-    expect(jobs[0]?.externalId).toBe("10000-1184867112-S")
+    expect(jobs.length).toBe(2)
+    expect(jobs[0]?.externalId).toBe("13635-a49ab6d4_JB5255603-S")
+    expect(jobs[0]?.title).toBe("Product Manager Security (m/w/d)")
+    expect(jobs[0]?.company).toBe("blackned GmbH")
     expect(jobs[0]?.location).toBe("Berlin")
+    expect(jobs[0]?.url).toContain("/jobdetail/13635-a49ab6d4_JB5255603-S")
   })
 
   it("parses arbeitnow public api", () => {
@@ -370,6 +377,61 @@ describe("new career-ops boards", () => {
       provider: "successfactors",
     })
     expect(detectToken(new URL("https://jobs.jobvite.com/acme"))).toMatchObject({ provider: "jobvite" })
+  })
+
+  it("recognises the corporate and German employer boards", () => {
+    const cases: [string, string][] = [
+      ["https://bloomberg.avature.net/careers/SearchJobs", "avature"],
+      ["https://career-ohb.csod.com/ux/ats/careersite/4/home?c=career-ohb", "csod"],
+      ["https://www.comeet.co/careers-api/2.0/company/30.005/positions?token=ABC123", "comeet"],
+      [
+        "https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=abc&ccId=19000101_000001",
+        "adp-workforcenow",
+      ],
+      ["https://db.jobs", "deutschebahn"],
+      ["https://www.rheinmetall.com/en/career/vacancies", "rheinmetall"],
+      ["https://www.heckler-koch.com/de/Karriere/Stellenangebote", "hecklerkoch"],
+      ["https://jobs.tkmsgroup.com/en", "tkms"],
+      ["https://www.3ds.com/careers/jobs", "dassault"],
+      ["https://www.ibm.com/careers/search?field_keyword_05[0]=Germany", "ibm"],
+    ]
+    for (const [url, provider] of cases) {
+      expect(detectToken(new URL(url)), url).toMatchObject({ provider })
+    }
+    expect(detectToken(new URL("https://careers.munichre.com/en/search-jobs"))?.provider).not.toBe("radancy")
+  })
+
+  it("reads IBM facets off a search URL", () => {
+    expect(
+      ibmFilters(
+        "https://www.ibm.com/careers/search?field_keyword_08[0]=Product%20Management&field_keyword_05[0]=Germany",
+      ),
+    ).toEqual({ country: "Germany", categories: ["Product Management"] })
+    expect(ibmFilters("https://www.ibm.com/careers/search")).toEqual({ country: "Germany", categories: [] })
+  })
+
+  it("turns aggregator URLs into their query", () => {
+    expect(detectToken(new URL("https://startup.jobs/roles/product-manager/remote"))).toEqual({
+      provider: "startup-jobs",
+      token: "role=product-manager&workplace=remote",
+    })
+    expect(startupJobsToken(new URL("https://startup.jobs/"))).toBe("*")
+    expect(detectToken(new URL("https://speedrun-talent-network.com/?q=product+manager"))).toEqual({
+      provider: "a16z-speedrun-talent",
+      token: "product manager",
+    })
+    expect(detectToken(new URL("https://generalist.world/jobs/"))).toEqual({
+      provider: "generalist-world",
+      token: "*",
+    })
+    expect(detectToken(new URL("https://news.ycombinator.com/item?id=1&q=berlin"))).toEqual({
+      provider: "hackernews",
+      token: "berlin",
+    })
+    expect(telegramChannel(new URL("https://t.me/s/forproducts"))).toBe("forproducts")
+    expect(telegramChannel(new URL("https://t.me/forproducts"))).toBe("forproducts")
+    expect(telegramChannel(new URL("https://t.me/+AbCdEf123"))).toBeNull()
+    expect(telegramChannel(new URL("https://t.me/joinchat/xyz"))).toBeNull()
   })
 })
 

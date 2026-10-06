@@ -9,6 +9,9 @@ const GUESSABLE = ["greenhouse", "lever", "ashby", "personio", "workable", "smar
 const HOST_NOISE = new Set(["www", "careers", "career", "jobs", "job", "apply", "hiring", "join"])
 
 const ATS_MARKERS: { re: RegExp; provider: string; group: number; useUrl?: boolean }[] = [
+  // A page served from Radancy's CDN is a Radancy site; corporate groups on it
+  // also link their subsidiaries' Greenhouse boards, which must not win.
+  { re: /cdn\.radancy\.(?:eu|com)|tbcdn\.talentbrew\.com/i, provider: "radancy", group: 0, useUrl: true },
   // The embed script is served both as `job_board?for=` and `job_board/js?for=`.
   { re: /boards\.greenhouse\.io\/embed\/job_board(?:\/js)?\?for=([a-z0-9_-]+)/i, provider: "greenhouse", group: 1 },
   { re: /job-boards\.greenhouse\.io\/([a-z0-9_-]+)/i, provider: "greenhouse", group: 1 },
