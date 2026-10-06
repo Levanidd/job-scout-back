@@ -9,7 +9,7 @@ import { parseGreenhouse } from "../../src/adapters/greenhouse"
 import { parseHimalayas } from "../../src/adapters/himalayas"
 import { parseJobicy } from "../../src/adapters/jobicy"
 import { parseLever } from "../../src/adapters/lever"
-import { parsePersonio } from "../../src/adapters/personio"
+import { parsePersonio, parsePersonioSearch } from "../../src/adapters/personio"
 import { parseRecruitee } from "../../src/adapters/recruitee"
 import { parseRss } from "../../src/adapters/rss"
 import { parseSmartRecruiters } from "../../src/adapters/smartrecruiters"
@@ -79,6 +79,35 @@ describe("adapter parsers", () => {
     const jobs = parsePersonio(xml, "acme")
     expect(jobs[0]?.title).toBe("Product Manager")
     expect(jobs[0]?.location).toBe("Berlin")
+  })
+
+  it("parses the personio board search feed", () => {
+    const jobs = parsePersonioSearch(
+      [
+        {
+          id: 2578538,
+          name: "Senior Product Manager",
+          seniority: "Experienced",
+          keywords: "Payments,B2C",
+          description: "",
+          office: "Berlin,Remote",
+          offices: ["Berlin", "Remote"],
+          department: "Product",
+        },
+        { id: 1, name: "" },
+      ],
+      "hometogo",
+    )
+    expect(jobs).toEqual([
+      {
+        externalId: "2578538",
+        title: "Senior Product Manager",
+        company: "hometogo",
+        location: "Berlin, Remote",
+        url: "https://hometogo.jobs.personio.de/job/2578538",
+        description: "Product · Experienced · Payments,B2C",
+      },
+    ])
   })
 
   it("parses workable widget", () => {

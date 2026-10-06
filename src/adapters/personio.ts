@@ -1,6 +1,6 @@
 import { XMLParser } from "fast-xml-parser"
 
-import { fetchText, str } from "../http"
+import { asArray, asRecord, fetchJson, fetchText, str, type HttpError } from "../http"
 import { clipDescription } from "../prefilter"
 import type { Adapter, RawJob } from "../types"
 
@@ -48,6 +48,28 @@ export function parsePersonio(xml: string, fallbackCompany?: string): RawJob[] {
   return jobs
 }
 
+/** The board page's own search feed: same postings, but no description. */
+export function parsePersonioSearch(payload: unknown, company: string): RawJob[] {
+  const jobs: RawJob[] = []
+  for (const item of asArray(payload)) {
+    const row = asRecord(item)
+    const id = str(row?.id)
+    const title = str(row?.name)
+    if (!row || !id || !title) continue
+    const offices = asArray(row.offices).map((office) => str(office)).filter(Boolean)
+    const summary = [str(row.department), str(row.seniority), str(row.keywords)].filter(Boolean).join(" · ")
+    jobs.push({
+      externalId: id,
+      title,
+      company,
+      location: offices.length > 0 ? offices.join(", ") : str(row.office),
+      url: `https://${company}.jobs.personio.de/job/${id}`,
+      description: clipDescription(str(row.description) || summary),
+    })
+  }
+  return jobs
+}
+
 export const personio: Adapter = {
   provider: "personio",
   kind: "company",
@@ -57,7 +79,14 @@ export const personio: Adapter = {
     return m?.[1] ?? null
   },
   async fetchJobs(token) {
-    const xml = await fetchText(`https://${token}.jobs.personio.de/xml?language=en`)
-    return parsePersonio(xml, token)
+    try {
+      const xml = await fetchText(`https://${token}.jobs.personio.de/xml?language=en`)
+      return parsePersonio(xml, token)
+    } catch (error) {
+      // A company can switch the XML export off while its board stays public.
+      if ((error as HttpError).status !== 404) throw error
+      const json = await fetchJson(`https://${token}.jobs.personio.de/search.json`)
+      return parsePersonioSearch(json, token)
+    }
   },
 }
