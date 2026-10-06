@@ -241,7 +241,8 @@ export default {
             accept: 'application/json',
             referer: `${careersUrl.origin}/`,
           },
-          body: JSON.stringify({ hitsPerPage: HITS_PER_PAGE, page, filters: { page }, query: '' }),
+          // job-scout patch: pass a search phrase through instead of always ''.
+          body: JSON.stringify({ hitsPerPage: HITS_PER_PAGE, page, filters: { page }, query: typeof entry.getro_query === 'string' ? entry.getro_query : '' }),
         });
       } catch (err) {
         // `err` is not guaranteed to be an Error — a promise may reject with

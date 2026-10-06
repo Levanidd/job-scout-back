@@ -22,6 +22,7 @@ free, we map it. Every such edit is marked `job-scout patch` in place.
 | `remotive.mjs` | Keep `description` and `publication_date` as `postedAt`. |
 | `landingjobs.mjs` | Keep `gross_salary_low`/`gross_salary_high` as yearly EUR. |
 | `_http.mjs` | Trimmed to the retry policy; see below. |
+| `getro.mjs` | Send `entry.getro_query` as the search phrase instead of always `''`. |
 
 `_http.mjs` upstream also holds the low-level transport, which binds to
 `node:dns`, an IP guard and `Buffer` — none of which exist on Workers. Only
@@ -38,8 +39,9 @@ configured by hand in `portals.yml`. We instead recognise them from the page:
 adapters resolve the rest — Getro reads its collection id from the markup on
 its own, and `src/adapters/consider.ts` lifts the board id out of the page.
 `radancy` (TalentBrew) is the same story on an employer's own domain: the
-Radancy CDN on the page gives it away, and that marker is checked before the
-others because group sites also link their subsidiaries' Greenhouse boards.
+Radancy CDN on the page gives it away. All three platform markers are checked
+before the ATS ones, because a fund's board or a group's site links the
+Greenhouse and Lever boards of the companies it lists.
 
 ## Known gaps
 

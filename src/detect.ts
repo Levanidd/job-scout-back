@@ -9,9 +9,13 @@ const GUESSABLE = ["greenhouse", "lever", "ashby", "personio", "workable", "smar
 const HOST_NOISE = new Set(["www", "careers", "career", "jobs", "job", "apply", "hiring", "join"])
 
 const ATS_MARKERS: { re: RegExp; provider: string; group: number; useUrl?: boolean }[] = [
-  // A page served from Radancy's CDN is a Radancy site; corporate groups on it
-  // also link their subsidiaries' Greenhouse boards, which must not win.
+  // Platforms that host a page on someone else's domain come first: a fund's
+  // talent network or a corporate group's site links the Greenhouse and Lever
+  // boards of the companies it lists, and those must not win. The page URL is
+  // the token; the adapter takes it from there.
   { re: /cdn\.radancy\.(?:eu|com)|tbcdn\.talentbrew\.com/i, provider: "radancy", group: 0, useUrl: true },
+  { re: /cdn\.getro\.com/i, provider: "getro", group: 0, useUrl: true },
+  { re: /"board"\s*:\s*\{\s*"id"\s*:\s*"[a-z0-9_-]+"/i, provider: "consider", group: 0, useUrl: true },
   // The embed script is served both as `job_board?for=` and `job_board/js?for=`.
   { re: /boards\.greenhouse\.io\/embed\/job_board(?:\/js)?\?for=([a-z0-9_-]+)/i, provider: "greenhouse", group: 1 },
   { re: /job-boards\.greenhouse\.io\/([a-z0-9_-]+)/i, provider: "greenhouse", group: 1 },
@@ -30,11 +34,6 @@ const ATS_MARKERS: { re: RegExp; provider: string; group: number; useUrl?: boole
   { re: /jobs\.gem\.com\/([a-z0-9_-]+)/i, provider: "gem", group: 0, useUrl: true },
   { re: /([a-z0-9-]+)\.eightfold\.ai/i, provider: "eightfold", group: 0, useUrl: true },
   { re: /([a-z0-9-]+)\.app\.beesite\.de/i, provider: "beesite", group: 0, useUrl: true },
-  // A fund's talent network runs on the fund's own domain, so nothing names the
-  // vendor except its assets. The page URL is the token; the adapter takes it
-  // from there.
-  { re: /cdn\.getro\.com/i, provider: "getro", group: 0, useUrl: true },
-  { re: /"board"\s*:\s*\{\s*"id"\s*:\s*"[a-z0-9_-]+"/i, provider: "consider", group: 0, useUrl: true },
 ]
 
 export type DetectResult = {
@@ -49,7 +48,7 @@ export type DetectResult = {
 
 type Found = { provider: string; token: string; jobs?: RawJob[] }
 
-function matchMarkers(haystack: string, url: string): { provider: string; token: string } | null {
+export function matchMarkers(haystack: string, url: string): { provider: string; token: string } | null {
   for (const marker of ATS_MARKERS) {
     const m = haystack.match(marker.re)
     if (!m) continue

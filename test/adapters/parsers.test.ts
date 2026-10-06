@@ -19,10 +19,12 @@ import { parseWorkable } from "../../src/adapters/workable"
 import { parseAdzuna } from "../../src/adapters/adzuna"
 import { amazonCategorySlug, amazonToken, parseAmazon } from "../../src/adapters/amazon"
 import { readWorkdayDescription, workdayDetailUrl } from "../../src/adapters/workday"
+import { getroBoard } from "../../src/adapters/getro"
 import { ibmFilters } from "../../src/adapters/ibm"
 import { startupJobsToken } from "../../src/adapters/startup-jobs"
 import { telegramChannel } from "../../src/adapters/telegram-channel"
 import { detectToken } from "../../src/adapters"
+import { matchMarkers } from "../../src/detect"
 import { labelFromUrl } from "../../src/adapters/career-ops"
 import { dedupKey } from "../../src/company-key"
 import { toIso } from "../../src/http"
@@ -428,6 +430,30 @@ describe("new career-ops boards", () => {
       expect(detectToken(new URL(url)), url).toMatchObject({ provider })
     }
     expect(detectToken(new URL("https://careers.munichre.com/en/search-jobs"))?.provider).not.toBe("radancy")
+  })
+
+  it("prefers the hosting platform over the boards a page links to", () => {
+    const fund = `<script src="https://cdn.getro.com/assets/app.js"></script>
+      <a href="https://job-boards.greenhouse.io/portfolioco/jobs/1">Engineer</a>`
+    expect(matchMarkers(fund, "https://jobs.pointnine.com/jobs")).toEqual({
+      provider: "getro",
+      token: "https://jobs.pointnine.com/jobs",
+    })
+    const group = `<link href="//cdn.radancy.eu/company/3167/css/site.css">
+      <a href="https://boards.greenhouse.io/subsidiary">Subsidiary</a>`
+    expect(matchMarkers(group, "https://careers.munichre.com/en/search-jobs")?.provider).toBe("radancy")
+    expect(matchMarkers(`<a href="https://jobs.lever.co/acme">Jobs</a>`, "https://acme.com")).toEqual({
+      provider: "lever",
+      token: "acme",
+    })
+  })
+
+  it("splits a getro board link into the board and its search phrase", () => {
+    expect(getroBoard("https://jobs.pointnine.com/jobs?q=product+manager")).toEqual({
+      board: "https://jobs.pointnine.com/jobs",
+      query: "product manager",
+    })
+    expect(getroBoard("https://hv.getro.com/jobs")).toEqual({ board: "https://hv.getro.com/jobs", query: "" })
   })
 
   it("reads IBM facets off a search URL", () => {

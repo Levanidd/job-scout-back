@@ -28,15 +28,35 @@ async function resolveBoardUrl(raw: string): Promise<string> {
  * URL says "Getro" — detection happens on the page, in src/detect.ts, and the
  * provider resolves its collection id from the board's own markup.
  */
+/**
+ * A board link may carry `?q=product+manager`, which Getro then searches
+ * server-side. It matches descriptions too, so a single word like "product"
+ * barely narrows a board, while a phrase cuts it to the roles that matter.
+ */
+export function getroBoard(token: string): { board: string; query: string } {
+  try {
+    const url = new URL(token)
+    const query = url.searchParams.get("q")?.trim() ?? ""
+    url.searchParams.delete("q")
+    return { board: url.href, query }
+  } catch {
+    return { board: token, query: "" }
+  }
+}
+
 export const getro = fromCareerOps(getroProvider, {
   kind: "query",
   detect: () => null,
-  entry: async (token) => ({
-    name: labelFromUrl(token),
-    careers_url: await resolveBoardUrl(token),
-    provider: "getro",
-    // A page is one subrequest and a Worker gets few of those; upstream's forty
-    // walks a fund's whole back catalogue when we only ever want what's new.
-    getro_max_pages: 15,
-  }),
+  entry: async (token) => {
+    const { board, query } = getroBoard(token)
+    return {
+      name: labelFromUrl(board),
+      careers_url: await resolveBoardUrl(board),
+      provider: "getro",
+      getro_query: query,
+      // A page is one subrequest and a Worker gets few of those; upstream's forty
+      // walks a fund's whole back catalogue when we only ever want what's new.
+      getro_max_pages: 15,
+    }
+  },
 })
