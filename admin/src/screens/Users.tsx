@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react"
+import { useCallback, useState, type ReactNode } from "react"
 
 import { api } from "../api"
 import { useAction, useApp, useLoader } from "../app-context"
@@ -36,7 +36,8 @@ function Token({
   )
 }
 
-export function Users() {
+/** `header` sits above the user list and gives way to a user's profile when one is open. */
+export function Users({ header }: { header?: ReactNode } = {}) {
   const run = useAction()
   const { me, notify } = useApp()
   const [users, setUsers] = useState<ManagedUser[] | null>(null)
@@ -112,6 +113,7 @@ export function Users() {
 
   return (
     <>
+      {header}
       <section className="card">
         <h3 className="card-title">Новый пользователь</h3>
         <p className="card-sub">

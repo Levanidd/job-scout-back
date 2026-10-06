@@ -1,8 +1,9 @@
 import { Hono } from "hono"
 
-import { currentUser } from "../auth"
+import { currentUser, masterGuard } from "../auth"
 import { enqueueTick, loadCycleView, requestOrigin, startCycle, tickOnce } from "../cycle"
 import { notifyNew, pickSources, prefilterAndScore } from "../ingest"
+import { SCHEDULE_TIMEZONE, loadSchedule, sanitizeTimes, saveSchedule } from "../schedule"
 import type { AppEnv } from "../types"
 
 export const run = new Hono<AppEnv>()
@@ -40,6 +41,47 @@ run.post("/api/score", async (c) => {
 })
 
 run.post("/api/notify", async (c) => c.json({ notified: await notifyNew(c.env) }))
+
+run.get("/api/run/schedule", async (c) => {
+  const denied = masterGuard(c)
+  if (denied) return denied
+  return c.json({ ...(await loadSchedule(c.env)), timezone: SCHEDULE_TIMEZONE })
+})
+
+run.put("/api/run/schedule", async (c) => {
+  const denied = masterGuard(c)
+  if (denied) return denied
+  const body = await c.req.json<{ enabled?: unknown; times?: unknown }>().catch(() => ({}) as Record<string, unknown>)
+  if (typeof body.enabled !== "boolean" || !Array.isArray(body.times)) {
+    return c.json({ error: "enabled and times required" }, 400)
+  }
+  const times = sanitizeTimes(body.times)
+  if (times.length !== new Set(body.times).size) return c.json({ error: "Время должно быть в формате ЧЧ:ММ" }, 400)
+  if (body.enabled && times.length === 0) return c.json({ error: "Добавьте хотя бы одно время запуска" }, 400)
+  const saved = await saveSchedule(c.env, { enabled: body.enabled, times })
+  return c.json({ ...saved, timezone: SCHEDULE_TIMEZONE })
+})
+
+const LOG_PAGE_SIZE = 10
+
+run.get("/api/run/log", async (c) => {
+  const denied = masterGuard(c)
+  if (denied) return denied
+  const page = Math.max(1, Math.floor(Number(c.req.query("page") ?? 1)) || 1)
+  const [rows, count] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT r.id, r.kind, r.status, r.started_at, r.finished_at,
+         r.sources, r.found, r.fresh, r.failed, r.scored, r.error, u.name AS user_name
+       FROM cycle_runs r
+       LEFT JOIN users u ON u.id = r.user_id
+       ORDER BY r.id DESC LIMIT ? OFFSET ?`,
+    )
+      .bind(LOG_PAGE_SIZE, (page - 1) * LOG_PAGE_SIZE)
+      .all(),
+    c.env.DB.prepare(`SELECT COUNT(*) AS n FROM cycle_runs`).first<{ n: number }>(),
+  ])
+  return c.json({ runs: rows.results, total: Number(count?.n ?? 0), page, page_size: LOG_PAGE_SIZE })
+})
 
 run.get("/api/runs", async (c) => {
   const rows = await c.env.DB.prepare(

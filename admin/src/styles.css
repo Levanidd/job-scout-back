@@ -1242,6 +1242,22 @@ a.mono:hover {
   height: 44px;
 }
 
+.tag-add .input-time {
+  flex: 0 0 140px;
+  color-scheme: dark;
+}
+
+.run-log td {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.pager {
+  justify-content: center;
+  gap: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 .dialog-overlay {
   position: fixed;
   inset: 0;

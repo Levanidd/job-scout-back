@@ -203,3 +203,31 @@ export type Cycle = {
   error: string | null
   updated_at: string | null
 }
+
+export type AutoRunSchedule = {
+  enabled: boolean
+  times: string[]
+  timezone: string
+}
+
+export type CycleRunEntry = {
+  id: number
+  kind: "manual" | "auto"
+  status: CycleStatus
+  started_at: string
+  finished_at: string | null
+  sources: number
+  found: number
+  fresh: number
+  failed: number
+  scored: number
+  error: string | null
+  user_name: string | null
+}
+
+export type CycleRunLog = {
+  runs: CycleRunEntry[]
+  total: number
+  page: number
+  page_size: number
+}

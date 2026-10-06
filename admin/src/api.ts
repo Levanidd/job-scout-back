@@ -1,5 +1,7 @@
 import type {
+  AutoRunSchedule,
   Cycle,
+  CycleRunLog,
   CompanyFacet,
   DetectResult,
   DiscoveredCompany,
@@ -328,6 +330,18 @@ export const api = {
 
   startCycle(): Promise<Cycle> {
     return post("/run")
+  },
+
+  autoRun(): Promise<AutoRunSchedule> {
+    return request("/run/schedule")
+  },
+
+  saveAutoRun(body: { enabled: boolean; times: string[] }): Promise<AutoRunSchedule> {
+    return request("/run/schedule", { method: "PUT", body: JSON.stringify(body) })
+  },
+
+  runLog(page: number): Promise<CycleRunLog> {
+    return request(`/run/log?page=${page}`)
   },
 
   detect(url: string): Promise<DetectResult> {

@@ -3,6 +3,7 @@ import { cors } from "hono/cors"
 
 import { resumeStuckCycle } from "./cycle"
 import { message } from "./errors"
+import { maybeAutoRun } from "./schedule"
 import { discovery } from "./routes/discovery"
 import { jobs } from "./routes/jobs"
 import { profile } from "./routes/profile"
@@ -67,6 +68,6 @@ app.onError((err, c) => {
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledEvent, env: AppEnv["Bindings"], ctx: ExecutionContext) {
-    ctx.waitUntil(resumeStuckCycle(env))
+    ctx.waitUntil(resumeStuckCycle(env).then(() => maybeAutoRun(env)))
   },
 }

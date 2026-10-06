@@ -2,27 +2,27 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType }
 
 import { api, forgetToken, getToken, UnauthorizedError, type JobFilters } from "./api"
 import { AppProvider, type ToastKind } from "./app-context"
-import { BookIcon, BriefcaseIcon, ChartIcon, CheckIcon, PeopleIcon, PersonIcon, StackIcon } from "./components/icons"
+import { BookIcon, BriefcaseIcon, ChartIcon, CheckIcon, GearIcon, PersonIcon, StackIcon } from "./components/icons"
 import { RunProgress, type RunState } from "./components/RunProgress"
 import { Applied, type PipeFilter } from "./screens/Applied"
 import { Guide } from "./screens/Guide"
 import { Jobs } from "./screens/Jobs"
 import { Profile } from "./screens/Profile"
 import { Resources } from "./screens/Resources"
+import { Settings } from "./screens/Settings"
 import { Stats } from "./screens/Stats"
 import { TokenGate } from "./screens/TokenGate"
-import { Users } from "./screens/Users"
 import type { AuthUser, Cycle } from "./types"
 
-type TabId = "resources" | "jobs" | "applied" | "stats" | "profile" | "users" | "guide"
+type TabId = "resources" | "jobs" | "applied" | "stats" | "profile" | "settings" | "guide"
 
 const TABS: Array<{ id: TabId; label: string; icon: ComponentType<{ className?: string }>; master?: boolean }> = [
   { id: "resources", label: "Ресурсы", icon: StackIcon },
   { id: "jobs", label: "Вакансии", icon: BriefcaseIcon },
   { id: "applied", label: "Подался", icon: CheckIcon },
   { id: "stats", label: "Статистика", icon: ChartIcon },
-  { id: "users", label: "Пользователи", icon: PeopleIcon, master: true },
   { id: "profile", label: "Профиль", icon: PersonIcon },
+  { id: "settings", label: "Настройки", icon: GearIcon, master: true },
   { id: "guide", label: "Инструкция", icon: BookIcon },
 ]
 
@@ -263,8 +263,8 @@ export default function App() {
             />
           ) : null}
           {tab === "stats" ? <Stats onOpenApplied={openApplied} /> : null}
-          {tab === "users" && me?.role === "master" ? <Users /> : null}
           {tab === "profile" ? <Profile /> : null}
+          {tab === "settings" && me?.role === "master" ? <Settings /> : null}
           {tab === "guide" ? <Guide /> : null}
         </main>
 

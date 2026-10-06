@@ -96,7 +96,7 @@ export function Field({ label, children }: { label: string; children: ReactNode 
 }
 
 /** D1 keeps timestamps as `YYYY-MM-DD HH:MM:SS` in UTC; feeds send real ISO. */
-function parseDate(value: string | null): Date | null {
+export function parseDate(value: string | null): Date | null {
   if (!value) return null
   const normalised = value.includes("T") ? value : value.replace(" ", "T") + "Z"
   const date = new Date(normalised)

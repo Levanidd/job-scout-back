@@ -7,6 +7,7 @@ const MAX_HOPS = 1000
 
 export type CyclePhase = "sources" | "scoring" | "digest"
 export type CycleStatus = "idle" | "running" | "done" | "error"
+export type CycleKind = "manual" | "auto"
 
 type Planned = { id: number; label: string }
 
@@ -31,6 +32,7 @@ type CycleRow = {
   error: string | null
   origin: string | null
   user_id: number | null
+  run_id: number | null
   started_at: string | null
   updated_at: string | null
   finished_at: string | null
@@ -112,21 +114,38 @@ export async function loadCycleView(env: Bindings): Promise<CycleView> {
   return view(row)
 }
 
-export async function failCycle(env: Bindings, error: unknown): Promise<void> {
+/** Copies the finished cycle's outcome onto its log entry. */
+async function closeRun(env: Bindings): Promise<void> {
   await env.DB.prepare(
+    `UPDATE cycle_runs SET
+       status = c.status, finished_at = c.finished_at, sources = c.source_total,
+       found = c.found, fresh = c.fresh, failed = c.failed, scored = c.scored, error = c.error
+     FROM (SELECT * FROM cycles WHERE id = 1) AS c
+     WHERE cycle_runs.id = c.run_id AND cycle_runs.status = 'running'`,
+  ).run()
+}
+
+export async function failCycle(env: Bindings, error: unknown): Promise<void> {
+  const failed = await env.DB.prepare(
     `UPDATE cycles SET status = 'error', error = ?, current_label = NULL, current_id = NULL,
        updated_at = datetime('now'), finished_at = datetime('now')
      WHERE id = 1 AND status = 'running'`,
   )
     .bind(message(error))
     .run()
+  if (Number(failed.meta.changes)) await closeRun(env)
 }
 
 /**
  * Starts a cycle, or leaves a live one alone so a second click / a stale poll
  * can re-kick the chain without wiping progress.
  */
-export async function startCycle(env: Bindings, origin?: string, userId?: number): Promise<CycleView> {
+export async function startCycle(
+  env: Bindings,
+  origin?: string,
+  userId?: number,
+  kind: CycleKind = "manual",
+): Promise<CycleView> {
   const current = await loadRow(env)
   if (current?.status === "running") {
     if (origin && !current.origin) {
@@ -138,6 +157,11 @@ export async function startCycle(env: Bindings, origin?: string, userId?: number
   const sources = await pickSources(env)
   const items = sources.map((source) => ({ id: source.id, label: source.label }))
   const phase: CyclePhase = items.length === 0 ? "scoring" : "sources"
+  const logged = await env.DB.prepare(
+    `INSERT INTO cycle_runs (kind, user_id, sources) VALUES (?, ?, ?) RETURNING id`,
+  )
+    .bind(kind, userId ?? null, items.length)
+    .first<{ id: number }>()
   await env.DB.prepare(
     `UPDATE cycles SET
        status = 'running', phase = ?, source_ids = ?, cursor = 0,
@@ -145,11 +169,19 @@ export async function startCycle(env: Bindings, origin?: string, userId?: number
        current_label = NULL, current_id = NULL,
        found = 0, fresh = 0, failed = 0, scored = 0, notified = 0,
        hops = 0, chunk_offset = 0, chunk_started_at = NULL,
-       error = NULL, origin = ?, user_id = ?,
+       error = NULL, origin = ?, user_id = ?, run_id = ?,
        started_at = datetime('now'), updated_at = datetime('now'), finished_at = NULL
      WHERE id = 1`,
   )
-    .bind(phase, JSON.stringify(items), items.length, items.length, origin ?? current?.origin ?? null, userId ?? null)
+    .bind(
+      phase,
+      JSON.stringify(items),
+      items.length,
+      items.length,
+      origin ?? current?.origin ?? null,
+      userId ?? null,
+      logged?.id ?? null,
+    )
     .run()
 
   const row = await loadRow(env)
@@ -165,6 +197,7 @@ async function finish(env: Bindings, notified: number): Promise<void> {
   )
     .bind(notified)
     .run()
+  await closeRun(env)
 }
 
 async function advance(env: Bindings, row: CycleRow): Promise<boolean> {

@@ -5,15 +5,13 @@ import { useAction, useApp, useLoader } from "../app-context"
 import { TagEditor } from "../components/TagEditor"
 import { Skeletons } from "../components/common"
 import type { BlacklistedCompany, PrefilterRules } from "../types"
-import { ModelPicker } from "./ModelPicker"
-
 function sameTags(left: PrefilterRules, right: PrefilterRules): boolean {
   return JSON.stringify(left) === JSON.stringify(right)
 }
 
 export function Profile({ subject }: { subject?: { id: number; name: string } } = {}) {
   const run = useAction()
-  const { me, notify, refresh } = useApp()
+  const { notify, refresh } = useApp()
   const [content, setContent] = useState<string | null>(null)
   const [saved, setSaved] = useState("")
   const [prefilter, setPrefilter] = useState<PrefilterRules>({ keep: [], drop: [] })
@@ -97,8 +95,6 @@ export function Profile({ subject }: { subject?: { id: number; name: string } } 
     if (result) notify(`Пересчитано вакансий: ${result.scored}`, "ok")
   }
 
-  const showModel = !otherId && me?.role === "master"
-
   return (
     <>
       {subject ? (
@@ -107,8 +103,6 @@ export function Profile({ subject }: { subject?: { id: number; name: string } } 
           <p className="card-sub">Префильтр, чёрный список и текст для скоринга этого человека. Вакансии и отклики не показываются.</p>
         </section>
       ) : null}
-
-      {showModel ? <ModelPicker /> : null}
 
       {content === null ? (
         <Skeletons count={1} />

@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest"
 
+import { startCycle, walkCycle } from "../src/cycle"
 import worker from "../src/index"
 import { upsertJobs } from "../src/ingest"
+import { dueSlot, maybeAutoRun, sanitizeTimes, saveSchedule } from "../src/schedule"
 import type { RawJob, SourceRow } from "../src/types"
 import { one, testEnv, type TestEnv } from "./helpers/d1"
 
@@ -459,6 +461,70 @@ describe("run", () => {
   it("plans the sources that are due", async () => {
     await seedJob()
     expect((await call("/api/run/plan")).body.sources).toHaveLength(1)
+  })
+})
+
+describe("auto-run", () => {
+  it("picks the slot that is due in Berlin time", () => {
+    // 2026-10-06 is summer time, UTC+2.
+    expect(dueSlot(["07:00", "19:30"], new Date("2026-10-06T05:00:00Z"))).toBe("2026-10-06 07:00")
+    expect(dueSlot(["07:00", "19:30"], new Date("2026-10-06T05:14:00Z"))).toBe("2026-10-06 07:00")
+    expect(dueSlot(["07:00", "19:30"], new Date("2026-10-06T05:15:00Z"))).toBeNull()
+    expect(dueSlot(["07:00", "19:30"], new Date("2026-10-06T04:59:00Z"))).toBeNull()
+    // Winter, UTC+1.
+    expect(dueSlot(["07:00"], new Date("2026-12-01T06:05:00Z"))).toBe("2026-12-01 07:00")
+  })
+
+  it("keeps only valid, unique, sorted times", () => {
+    expect(sanitizeTimes(["19:30", "07:00", "07:00", "25:00", "7:00", 5])).toEqual(["07:00", "19:30"])
+  })
+
+  it("saves the schedule and rejects malformed times", async () => {
+    expect((await call("/api/run/schedule")).body).toEqual({ enabled: false, times: [], timezone: "Europe/Berlin" })
+    const put = (body: unknown) => call("/api/run/schedule", { method: "PUT", body: JSON.stringify(body) })
+    expect((await put({ enabled: true, times: ["9:00"] })).status).toBe(400)
+    expect((await put({ enabled: true, times: [] })).status).toBe(400)
+    expect(await put({ enabled: true, times: ["19:00", "08:30"] })).toMatchObject({
+      status: 200,
+      body: { enabled: true, times: ["08:30", "19:00"] },
+    })
+    expect((await call("/api/run/schedule")).body).toMatchObject({ enabled: true, times: ["08:30", "19:00"] })
+  })
+
+  it("starts a run once per slot and logs it as automatic", async () => {
+    await saveSchedule(env, { enabled: true, times: ["07:00"] })
+    const at = new Date("2026-10-06T05:01:00Z")
+    expect(await maybeAutoRun(env, at)).toBe(true)
+    expect(await maybeAutoRun(env, new Date("2026-10-06T05:02:00Z"))).toBe(false)
+
+    const log = (await call("/api/run/log")).body
+    expect(log).toMatchObject({ total: 1, page: 1, page_size: 10 })
+    expect(log.runs[0]).toMatchObject({ kind: "auto", status: "done", user_name: "Мастер" })
+    expect(log.runs[0].finished_at).toBeTruthy()
+  })
+
+  it("does nothing while switched off", async () => {
+    await saveSchedule(env, { enabled: false, times: ["07:00"] })
+    expect(await maybeAutoRun(env, new Date("2026-10-06T05:01:00Z"))).toBe(false)
+  })
+
+  it("logs manual runs and pages the log by ten", async () => {
+    for (let i = 0; i < 12; i++) {
+      await startCycle(env, undefined, 1)
+      await walkCycle(env)
+    }
+    const first = (await call("/api/run/log")).body
+    expect(first.total).toBe(12)
+    expect(first.runs).toHaveLength(10)
+    expect(first.runs[0].kind).toBe("manual")
+    expect((await call("/api/run/log?page=2")).body.runs).toHaveLength(2)
+  })
+
+  it("keeps the schedule and log away from regular users", async () => {
+    const created = await call("/api/users", { method: "POST", body: JSON.stringify({ name: "Лена" }) })
+    const token = created.body.user.token as string
+    expect((await call("/api/run/schedule", { token })).status).toBe(403)
+    expect((await call("/api/run/log", { token })).status).toBe(403)
   })
 })
 
