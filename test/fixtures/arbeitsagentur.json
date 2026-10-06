@@ -1,26 +1,104 @@
 {
-  "maxErgebnisse": 1,
-  "page": 1,
-  "size": 25,
-  "stellenangebote": [
+  "ergebnisliste": [
     {
-      "hashId": "WBTAiM10b25rJgZqiLhVIHzAF9e0rnV_DXdsRZtlb54=",
-      "beruf": "Elektroinstallateur/in",
-      "refnr": "10000-1184867112-S",
-      "arbeitgeber": "Gröger & Oltermann Sicherheits- und Elektrotechnik GmbH",
-      "aktuelleVeroeffentlichungsdatum": "2021-07-25",
-      "eintrittsdatum": "2021-07-26",
-      "arbeitsort": {
-        "plz": 90537,
-        "ort": "Berlin",
-        "strasse": "Altdorfer Straße",
-        "region": "Berlin",
-        "land": "Deutschland",
-        "koordinaten": {
-          "lat": 52.4926832,
-          "lon": 13.4025753
+      "stellenangebotsart": "ARBEIT",
+      "stellenangebotsTitel": "Product Manager Security (m/w/d)",
+      "quereinstiegGeeignet": false,
+      "arbeitszeitSchichtNachtWochenende": false,
+      "arbeitszeitTeilzeitAbend": false,
+      "arbeitszeitTeilzeitNachmittag": true,
+      "arbeitszeitTeilzeitVormittag": true,
+      "arbeitszeitTeilzeitFlexibel": false,
+      "arbeitszeitVollzeit": true,
+      "eintrittszeitraum": {
+        "von": "2026-09-24"
+      },
+      "verguetungsangabe": "KEINE_ANGABEN",
+      "vertragsdauer": "UNBEFRISTET",
+      "istGeringfuegigeBeschaeftigung": false,
+      "stellenlokationen": [
+        {
+          "adresse": {
+            "plz": "10961",
+            "ort": "Berlin",
+            "region": "BERLIN",
+            "land": "DEUTSCHLAND"
+          },
+          "breite": 52.4928267,
+          "laenge": 13.3974202
         }
-      }
+      ],
+      "homeofficemoeglich": false,
+      "veroeffentlichungszeitraum": {
+        "von": "2026-09-24"
+      },
+      "datumErsteVeroeffentlichung": "2026-09-24",
+      "aenderungsdatum": "2026-09-24T14:13:32.764",
+      "externeURL": "https://www.jobexport.de/job/5255603.html?exp=81&cid=a49ab6d4-e89f-4c9c-8819-20763ba64967",
+      "hauptberuf": "Produktmanager/in",
+      "firma": "blackned GmbH",
+      "referenznummer": "13635-a49ab6d4_JB5255603-S",
+      "entfernung": 3,
+      "alleBerufe": [
+        "Produktmanager/in"
+      ]
+    },
+    {
+      "stellenangebotsart": "ARBEIT",
+      "stellenangebotsTitel": "Product Manager (w/m/d/x)",
+      "quereinstiegGeeignet": false,
+      "arbeitszeitSchichtNachtWochenende": false,
+      "arbeitszeitTeilzeitAbend": false,
+      "arbeitszeitTeilzeitNachmittag": true,
+      "arbeitszeitTeilzeitVormittag": true,
+      "arbeitszeitTeilzeitFlexibel": false,
+      "arbeitszeitVollzeit": true,
+      "eintrittszeitraum": {
+        "von": "2026-09-28"
+      },
+      "verguetungsangabe": "KEINE_ANGABEN",
+      "vertragsdauer": "UNBEFRISTET",
+      "istGeringfuegigeBeschaeftigung": false,
+      "stellenlokationen": [
+        {
+          "adresse": {
+            "plz": "10785",
+            "ort": "Berlin",
+            "region": "BERLIN",
+            "land": "DEUTSCHLAND"
+          },
+          "breite": 52.506327,
+          "laenge": 13.3650884
+        }
+      ],
+      "homeofficemoeglich": false,
+      "chiffrenummer": "1822749",
+      "veroeffentlichungszeitraum": {
+        "von": "2026-09-28"
+      },
+      "datumErsteVeroeffentlichung": "2026-09-28",
+      "aenderungsdatum": "2026-09-28T17:23:44.182",
+      "externeURL": "https://www.jobexport.de/job/5258404.html?exp=81&cid=9fc81f52-c5bd-4837-8a00-24d4c6154b27",
+      "hauptberuf": "Produktmanager/in",
+      "firma": "Doc Cirrus GmbH",
+      "referenznummer": "13635-9fc81f52_JB5258404-S",
+      "entfernung": 4,
+      "alleBerufe": [
+        "Produktmanager/in"
+      ]
     }
-  ]
+  ],
+  "maxErgebnisse": 2,
+  "page": 1,
+  "size": 100,
+  "woOutput": {
+    "bereinigterOrt": "Berlin",
+    "suchmodus": "UMKREISSUCHE",
+    "koordinaten": [
+      {
+        "lat": 52.5112613,
+        "lon": 13.4255145
+      }
+    ]
+  }
 }

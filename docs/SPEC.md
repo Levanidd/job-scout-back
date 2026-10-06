@@ -101,7 +101,7 @@ CREATE TABLE profile (id INTEGER PRIMARY KEY CHECK (id=1), content TEXT NOT NULL
 **Arbeitsagentur.** Ключевой источник для Германии. Ключ публичный и захардкожен:
 
 ```
-GET https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs
+GET https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v6/jobs
     ?was=Product+Manager&wo=Berlin&umkreis=50&angebotsart=1&pav=false&page=1&size=100
 Header: X-API-Key: jobboerse-jobsuche
 ```

@@ -1,37 +1,37 @@
 import { asArray, asRecord, fetchJson, str } from "../http"
 import type { Adapter, RawJob } from "../types"
 
-const BASE = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs"
+const BASE = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v6/jobs"
 const KEY = "jobboerse-jobsuche"
 
 type Offer = {
-  refnr?: string
-  beruf?: string
-  titel?: string
-  arbeitgeber?: string
-  aktuelleVeroeffentlichungsdatum?: string
-  arbeitsort?: { ort?: string }
+  referenznummer?: string
+  stellenangebotsTitel?: string
+  hauptberuf?: string
+  firma?: string
+  datumErsteVeroeffentlichung?: string
+  stellenlokationen?: unknown
 }
 
 export function parseArbeitsagentur(payload: unknown): RawJob[] {
   const root = asRecord(payload)
-  const offers = asArray(root?.stellenangebote)
+  const offers = asArray(root?.ergebnisliste)
   const jobs: RawJob[] = []
   for (const item of offers) {
     const row = asRecord(item)
     if (!row) continue
     const offer = row as Offer
-    const id = str(offer.refnr)
+    const id = str(offer.referenznummer)
     if (!id) continue
-    const title = str(offer.titel) ?? str(offer.beruf) ?? "Untitled"
-    const loc = asRecord(offer.arbeitsort)
+    const title = str(offer.stellenangebotsTitel) ?? str(offer.hauptberuf) ?? "Untitled"
+    const place = asRecord(asRecord(asArray(offer.stellenlokationen)[0])?.adresse)
     jobs.push({
       externalId: id,
       title,
-      company: str(offer.arbeitgeber),
-      location: str(loc?.ort),
+      company: str(offer.firma),
+      location: str(place?.ort),
       url: `https://www.arbeitsagentur.de/jobsuche/jobdetail/${encodeURIComponent(id)}`,
-      postedAt: str(offer.aktuelleVeroeffentlichungsdatum),
+      postedAt: str(offer.datumErsteVeroeffentlichung),
     })
   }
   return jobs
