@@ -234,6 +234,17 @@ a:hover {
   box-shadow: 0 0 0 1px rgba(147, 92, 255, 0.2);
 }
 
+.settings-heading {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 12px 0 0;
+}
+
+.settings-heading:first-child {
+  margin-top: 4px;
+}
+
 .card-title {
   font-size: 15px;
   font-weight: 600;

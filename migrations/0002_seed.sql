@@ -1,12 +1,4 @@
-INSERT INTO profile (id, content) VALUES (1, '# Profile
-Senior product manager, based in Berlin, open to Germany-remote.
-
-Want: fintech, payments, banking, deposits, AI/ML product roles. English-speaking teams.
-Senior / lead / principal — yes. Junior / intern / working student — no.
-German C1 as a hard requirement is a strong no.
-US-only or relocation-to-US — no.
-Agencies and staff-augmentation consultancies — no.
-');
+INSERT INTO profile (id, content) VALUES (1, '');
 
 INSERT INTO sources (kind, tier, label, provider, token) VALUES
 ('query', 'discovery', 'Product Manager · Berlin 50km', 'arbeitsagentur', 'was=Product+Manager&wo=Berlin&umkreis=50&angebotsart=1&pav=false'),
