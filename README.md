@@ -1,156 +1,154 @@
 # JobRadar
 
-Cloudflare Worker: поиск вакансий по ATS и query-источникам (Arbeitsagentur, Arbeitnow), дедуп, скоринг, Telegram-дайджест.
+A Cloudflare Worker that pulls jobs from company ATS boards and query sources (Arbeitsagentur, Arbeitnow, and others), dedupes them, scores them, and serves a React admin from the same origin.
 
-Спека: [`docs/SPEC.md`](docs/SPEC.md). Админка на React живёт в `admin/` и раздаётся тем же воркером.
+Spec: [`docs/SPEC.md`](docs/SPEC.md).
 
-## Стек
+## Stack
 
-TypeScript, Hono, Cloudflare Workers, D1, Cron. Gemini — опционально (`GEMINI_API_KEY`).
+TypeScript, Hono, Cloudflare Workers, D1, Cron. Gemini scoring is optional (`GEMINI_API_KEY`); without a key, a local keyword heuristic is used.
 
-## Поднять у себя
+## Run it yourself
 
-Нужны Node 20+, npm, аккаунт Cloudflare.
+Needs Node 20+, npm, and a Cloudflare account.
 
 ```bash
 npm install
 cp .dev.vars.example .dev.vars
-# в .dev.vars задайте ADMIN_TOKEN (обязательно)
+# set ADMIN_TOKEN in .dev.vars (required)
 
 npm test
 npx wrangler login
 npx wrangler d1 create job-scout
 ```
 
-Скопируйте `database_id` из вывода в `wrangler.toml`.
+Copy the `database_id` from that output into `wrangler.toml`.
 
 ```bash
 npx wrangler d1 migrations apply job-scout --remote
 
 npx wrangler secret put ADMIN_TOKEN
-npx wrangler secret put GEMINI_API_KEY         # скоринг Gemini; без него — локальная эвристика
-npx wrangler secret put GEMINI_MODEL           # опционально, по умолчанию gemini-3.7-flash
-npx wrangler secret put TELEGRAM_BOT_TOKEN     # дайджест; без него вакансии только в D1
+npx wrangler secret put GEMINI_API_KEY         # Gemini scoring; without it, local heuristic
+npx wrangler secret put GEMINI_MODEL           # optional, defaults to gemini-3.7-flash
+npx wrangler secret put TELEGRAM_BOT_TOKEN     # digest; without it, jobs stay in D1
 npx wrangler secret put TELEGRAM_CHAT_ID
 
 npm run deploy
 ```
 
-Локально: `npm run dev` → `GET http://127.0.0.1:43142/api/health`.
+Locally: `npm run dev` → `GET http://127.0.0.1:43142/api/health`.
 
-Автозапуска нет: прогон стартует только кнопкой «Прогнать» в админке, то есть `POST /api/run`.
-Крон (`crons = ["* * * * *"]`) сам цикл никогда не начинает — он лишь подхватывает тот, который
-Cloudflare оборвал вместе с `waitUntil`, если ничего не двигалось 45 секунд. Поэтому вкладку можно
-закрыть. Большая доска пишется слайсами по 200 вакансий, чтобы один хоп укладывался в бюджет воркера.
+A run starts from the admin **Run** button (`POST /api/run`) or from the master's auto-run schedule. Cron (`* * * * *`) also resumes a cycle that Cloudflare dropped mid-`waitUntil` if nothing moved for 45 seconds, so you can close the tab. Large boards are written in slices of 200 jobs so one hop fits the Worker budget.
 
-## Админка
+## Admin
 
-React + Vite в `admin/`, сборка в `admin/dist`, раздаётся через assets binding. Статика отвечает
-первой только на существующие файлы, поэтому `/api/*` уходит в воркер.
+React + Vite in `admin/`, built to `admin/dist`, served through the Worker assets binding. Static files win only when they exist, so `/api/*` still hits the Worker.
 
-Экраны: Ресурсы (Discovery, Исследовать, Источники), Вакансии, Подался, Статистика, Пользователи (только мастер), Профиль.
-Вход по личному токену: первый логин с `ADMIN_TOKEN` создаёт мастера, дальше у каждого свой токен из вкладки «Пользователи». Токен хранится в `sessionStorage` вкладки. Мастер видит токены всех выданных им пользователей и может перевыпустить любой; его собственный вход по `ADMIN_TOKEN` показать нельзя, потому что этого секрета в базе нет.
+Tabs: Resources (Discovery, Explore, Sources), Jobs, Applied, Stats, Profile, Settings (master only), Guide.
 
-Вакансии, источники и ресурсы общие. Префильтр, чёрный список, скоринг, отклики и статусы — у каждого свои. Добавить источник может любой; выключить, удалить и настроить модель — только мастер. Telegram-дайджест сейчас выключен.
+Sign-in is a personal token. The first login with `ADMIN_TOKEN` creates the master; everyone else gets a token from Settings → Users. The token lives in `sessionStorage` for that tab. The master can view and rotate issued tokens. Their own `ADMIN_TOKEN` login cannot be shown, because that secret is not stored in the database.
 
-Выставленные фильтры и сортировка переживают перезагрузку — они лежат в `localStorage` под ключами
-`jobradar.<экран>.*`. Список вакансий, открытый по кнопке из карточки источника или компании, туда не
-пишется: это разовый срез, а не выбор пользователя.
+Jobs, sources, and discovery are shared. Prefilter, blacklist, scoring, applications, and statuses are per user. Anyone can add a source; only the master can disable, delete, pick the model, or edit the auto-run schedule. The Telegram digest is currently off.
+
+Filters and sort survive reload in `localStorage` under `jobradar.<screen>.*`. A job list opened from a source or company card is not saved: it is a one-off slice, not the user's chosen view.
 
 ```bash
-npm run build       # собрать админку
-npm run admin:dev   # Vite на 5173 с проксированием /api на 43142
+npm run build       # build the admin
+npm run admin:dev   # Vite on 5173, proxying /api to 43142
 ```
 
-## Деплой
+## Deploy
 
-Пуш в `main` деплоит сам: к репозиторию подключён Workers Builds с build command `npm run build` и
-deploy command `npx wrangler deploy`. Отдельно катить руками не нужно.
+A push to `main` deploys: Workers Builds is wired with build command `npm run build` and deploy command `npx wrangler deploy`. You do not need to ship by hand.
 
-`npm run deploy` остаётся на случай, когда выложить надо в обход гита. Учтите, что он начинается с
-`npm --prefix admin ci`, то есть сносит и ставит заново `admin/node_modules`, — локально это лишние
-минуты, а однажды он на этом шаге и вовсе завис, уже сделав всю работу.
+`npm run deploy` is for shipping without git. It starts with `npm --prefix admin ci`, which deletes and reinstalls `admin/node_modules` — slow locally, and it has hung after already finishing the work.
+
+D1 migrations are not applied by a code deploy. After a migration is added:
+
+```bash
+npx wrangler d1 migrations apply job-scout --remote
+```
 
 ## API
 
-Все пути кроме `/` и `/api/health` требуют заголовок:
+Every path except `/` and `/api/health` needs:
 
-`Authorization: Bearer <токен пользователя>`
+`Authorization: Bearer <user token>`
 
-Первый вход с `ADMIN_TOKEN`, пока таблица пользователей пуста, создаёт мастера и переносит текущий профиль, оценки и статусы. Дальше этот же секрет работает только если его хеш лежит в `users`.
+The first login with `ADMIN_TOKEN`, while `users` is empty, creates the master and copies the current profile, scores, and statuses. After that the same secret only works if its hash is stored on a user row.
 
-| Метод | Путь | Зачем |
+| Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/health` | живость |
-| GET | `/api/me` | текущий пользователь |
-| GET/POST | `/api/users` | список и создание (мастер) |
-| PATCH | `/api/users/:id` | имя и роль (мастер; последнего мастера снять нельзя) |
-| POST | `/api/users/:id/token` | перевыпуск токена (мастер); старый сразу перестаёт работать |
-| GET/PUT | `/api/users/:id/profile` | префильтр / чёрный список / текст скоринга другого человека |
-| POST | `/api/users/:id/rescore` | пересчёт оценок этого человека |
-| GET/POST | `/api/sources` | источники; добавить может любой |
-| PATCH/DELETE | `/api/sources/:id` | выкл / имя / удаление — только мастер |
-| POST | `/api/sources/:id/run` | прогон одного |
-| POST | `/api/run` | цикл ingest + score для того, кто нажал |
+| GET | `/api/health` | liveness |
+| GET | `/api/me` | current user |
+| GET/POST | `/api/users` | list and create (master) |
+| PATCH | `/api/users/:id` | name and role (master; the last master cannot be demoted) |
+| POST | `/api/users/:id/token` | rotate token (master); the old one stops working immediately |
+| GET/PUT | `/api/users/:id/profile` | another person's prefilter / blacklist / scoring text |
+| POST | `/api/users/:id/rescore` | rescore that person |
+| GET/POST | `/api/sources` | sources; anyone can add |
+| PATCH/DELETE | `/api/sources/:id` | disable / rename / delete — master only |
+| POST | `/api/sources/:id/run` | run one source |
+| GET/POST | `/api/run` | cycle status / start ingest + score |
+| GET/PUT | `/api/run/schedule` | auto-run slots in Europe/Berlin (master) |
+| GET | `/api/run/log` | run history, 10 per page (master) |
 | POST | `/api/detect` | `{url}` → ATS |
 | POST | `/api/sources/bulk-detect` | `{urls:[]}` |
-| GET | `/api/discovered?state=new` | новые компании |
-| POST | `/api/discovered/:key/add` | в watchlist |
-| POST | `/api/discovered/:key/dismiss` | скрыть |
-| GET | `/api/jobs` | `?status=&min_score=&tier=&companies=&added_days=&added_from=&viewed=&later=&applied=&sort=&dir=`; `status=any` — включая отсеянные |
-| GET | `/api/jobs/companies` | компании с их числом вакансий под те же фильтры |
-| PATCH | `/api/jobs/:id` | `{status}`, `{notes}`, `{viewed}` или `{later}` — только свои |
-| GET | `/api/applied` | отклики; `?status=applied\|interview\|rejected` |
-| POST | `/api/applied` | вакансия, добавленная руками, без ATS |
-| GET | `/api/stats` | воронка найдено/просмотрено/подался, разбивка откликов, ряды по неделям и месяцам; `?days=N` ограничивает воронку и разбивку периодом, ряды остаются за свои 12 недель и 12 месяцев |
-| GET/PUT | `/api/profile` | текст для скоринга, keep/drop-теги и чёрный список компаний |
-| POST | `/api/profile/rescore` | обнулить score и пересчитать |
-| PUT | `/api/settings` | модель Gemini — только мастер |
-| GET | `/api/runs` | последние 50 прогонов |
-| POST | `/api/mcp` | MCP для Клода и Cursor: только чтение базы. Инструменты `schema` и `query` (один SELECT) |
+| GET | `/api/discovered?state=new` | new companies |
+| POST | `/api/discovered/:key/add` | add to watchlist |
+| POST | `/api/discovered/:key/dismiss` | hide |
+| GET | `/api/jobs` | `?status=&min_score=&tier=&companies=&added_days=&added_from=&viewed=&later=&applied=&sort=&dir=`; `status=any` includes off-profile |
+| GET | `/api/jobs/companies` | companies with counts under the same filters |
+| PATCH | `/api/jobs/:id` | `{status}`, `{notes}`, `{viewed}`, or `{later}` — own rows only |
+| GET | `/api/applied` | applications; `?status=applied\|interview\|rejected` |
+| POST | `/api/applied` | a job entered by hand, no ATS |
+| GET | `/api/stats` | found / viewed / applied funnel, application breakdown, week and month series; `?days=N` limits the funnel and breakdown, series stay at 12 weeks and 12 months |
+| GET/PUT | `/api/profile` | scoring text, keep/drop tags, company blacklist |
+| POST | `/api/profile/rescore` | clear scores and rescore |
+| GET/PUT | `/api/settings` | Gemini model — master only |
+| GET | `/api/runs` | last 50 source runs |
+| POST | `/api/mcp` | MCP for Claude and Cursor: read-only SQL. Tools `schema` and `query` (one SELECT) |
 
-Роуты разложены по доменам в `src/routes/`; `src/index.ts` только собирает приложение,
-проверяет токен и ловит ошибки.
+Routes live by domain in `src/routes/`. `src/index.ts` only assembles the app, checks the token, and catches errors.
 
-Подключение MCP — тот же адрес воркера и личный токен, что у админки. Запись через этот
-эндпоинт не проходит.
+MCP uses the same Worker URL and personal token as the admin. Writes are rejected.
 
 ```json
 {
   "mcpServers": {
     "jobradar": {
-      "url": "https://<воркер>/api/mcp",
-      "headers": { "Authorization": "Bearer <личный токен>" }
+      "url": "https://<worker>/api/mcp",
+      "headers": { "Authorization": "Bearer <personal token>" }
     }
   }
 }
 ```
 
-В Claude Code: `claude mcp add --transport http jobradar https://<воркер>/api/mcp --header "Authorization: Bearer <личный токен>"`.
-В Cursor тот же JSON кладётся в MCP settings. Токен в репозиторий не коммитьте.
+Claude Code: `claude mcp add --transport http jobradar https://<worker>/api/mcp --header "Authorization: Bearer <personal token>"`.
 
-Первый прогон источника с `bootstrapped=0` не шлёт уведомления (холодный старт).
+In Cursor, put the same JSON in MCP settings. Do not commit the token.
 
-## Секреты
+The first run of a source with `bootstrapped=0` does not send notifications (cold start).
 
-| Имя | Зачем |
+## Secrets
+
+| Name | Purpose |
 |---|---|
-| `ADMIN_TOKEN` | создаёт первого мастера; дальше вход по личным токенам |
-| `GEMINI_API_KEY` | скоринг через Gemini |
-| `GEMINI_MODEL` | имя модели, по умолчанию `gemini-3.7-flash` |
-| `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` | дайджест |
-| `ADZUNA_APP_ID` + `ADZUNA_APP_KEY` | опциональный источник |
+| `ADMIN_TOKEN` | creates the first master; later logins use personal tokens |
+| `GEMINI_API_KEY` | Gemini scoring |
+| `GEMINI_MODEL` | model name, default `gemini-3.7-flash` |
+| `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` | digest |
+| `ADZUNA_APP_ID` + `ADZUNA_APP_KEY` | optional source |
 
-Ключ Arbeitsagentur публичный, в коде.
+The Arbeitsagentur key is public and lives in code.
 
-## Тесты
+## Tests
 
 ```bash
 npm test              # tsc --noEmit + vitest
-npm run typecheck     # только типы воркера
+npm run typecheck     # Worker types only
 npm run typecheck:admin
-npm run eval          # 20 вакансий, цель ≤3 расхождений
+npm run eval          # 20 jobs, target ≤3 mismatches
 ```
 
-Тесты ingest и API поднимают SQLite в памяти, прогоняют по нему настоящие миграции и дергают
-воркер через `app.fetch`, так что запросы проверяются против того же SQL, что уходит в D1.
+Ingest and API tests spin up SQLite in memory, apply the real migrations, and call the Worker through `app.fetch`, so queries run against the same SQL that D1 would see.
