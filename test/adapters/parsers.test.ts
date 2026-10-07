@@ -448,6 +448,16 @@ describe("new career-ops boards", () => {
     })
   })
 
+  it("reads the Workday board off a branded page that links each posting to it", () => {
+    const page = `<a href="https://intactfc.wd3.myworkdayjobs.com/intactfc/job/Toronto-Ontario-CAN/Manager_R155977/apply">Apply</a>`
+    expect(matchMarkers(page, "https://careers.intactfc.com/jobs")).toEqual({
+      provider: "workday",
+      token: "https://intactfc.wd3.myworkdayjobs.com/intactfc",
+    })
+    const localized = `<a href="https://acme.wd5.myworkdayjobs.com/en-US/External/job/Berlin/Dev_R1">Dev</a>`
+    expect(matchMarkers(localized, "https://acme.com/careers")?.token).toBe("https://acme.wd5.myworkdayjobs.com/External")
+  })
+
   it("splits a getro board link into the board and its search phrase", () => {
     expect(getroBoard("https://jobs.pointnine.com/jobs?q=product+manager")).toEqual({
       board: "https://jobs.pointnine.com/jobs",

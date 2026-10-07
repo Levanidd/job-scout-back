@@ -8,7 +8,13 @@ const GUESSABLE = ["greenhouse", "lever", "ashby", "personio", "workable", "smar
 
 const HOST_NOISE = new Set(["www", "careers", "career", "jobs", "job", "apply", "hiring", "join"])
 
-const ATS_MARKERS: { re: RegExp; provider: string; group: number; useUrl?: boolean }[] = [
+const ATS_MARKERS: {
+  re: RegExp
+  provider: string
+  group: number
+  useUrl?: boolean
+  build?: (match: RegExpMatchArray) => string
+}[] = [
   // Platforms that host a page on someone else's domain come first: a fund's
   // talent network or a corporate group's site links the Greenhouse and Lever
   // boards of the companies it lists, and those must not win. The page URL is
@@ -16,6 +22,14 @@ const ATS_MARKERS: { re: RegExp; provider: string; group: number; useUrl?: boole
   { re: /cdn\.radancy\.(?:eu|com)|tbcdn\.talentbrew\.com/i, provider: "radancy", group: 0, useUrl: true },
   { re: /cdn\.getro\.com/i, provider: "getro", group: 0, useUrl: true },
   { re: /"board"\s*:\s*\{\s*"id"\s*:\s*"[a-z0-9_-]+"/i, provider: "consider", group: 0, useUrl: true },
+  // Branded career sites list their openings but link each one to the Workday
+  // posting; the tenant, instance and site in that link are the whole board.
+  {
+    re: /https?:\/\/([a-z0-9-]+)\.(wd\d+)\.myworkdayjobs\.com\/(?:[a-z]{2}-[A-Z]{2}\/)?(?!wday\/)([a-z0-9_-]+)/i,
+    provider: "workday",
+    group: 0,
+    build: (m) => `https://${m[1].toLowerCase()}.${m[2].toLowerCase()}.myworkdayjobs.com/${m[3]}`,
+  },
   // The embed script is served both as `job_board?for=` and `job_board/js?for=`.
   { re: /boards\.greenhouse\.io\/embed\/job_board(?:\/js)?\?for=([a-z0-9_-]+)/i, provider: "greenhouse", group: 1 },
   { re: /job-boards\.greenhouse\.io\/([a-z0-9_-]+)/i, provider: "greenhouse", group: 1 },
@@ -52,7 +66,7 @@ export function matchMarkers(haystack: string, url: string): { provider: string;
   for (const marker of ATS_MARKERS) {
     const m = haystack.match(marker.re)
     if (!m) continue
-    const token = marker.useUrl ? url : m[marker.group]
+    const token = marker.build ? marker.build(m) : marker.useUrl ? url : m[marker.group]
     if (token) return { provider: marker.provider, token }
   }
   return null
