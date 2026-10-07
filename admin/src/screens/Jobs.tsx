@@ -5,22 +5,11 @@ import { useAction, useApp, useLoader } from "../app-context"
 import { usePersistentState } from "../persist"
 import { ConfirmDialog } from "../components/ConfirmDialog"
 import { RefreshIcon } from "../components/icons"
-import { JobCard, openOnDoubleClick } from "../components/JobCard"
+import { JobCard, STATUS_LABELS, openOnDoubleClick } from "../components/JobCard"
 import { MultiSelect } from "../components/MultiSelect"
 import { SortHeader } from "../components/SortHeader"
 import { Age, Count, Empty, Flags, ScoreBadge, Skeletons, formatSalary, plural } from "../components/common"
 import type { CompanyFacet, Job, JobStatus } from "../types"
-
-const STATUS_LABELS: Record<JobStatus, string> = {
-  new: "Новая",
-  notified: "Отправлена",
-  saved: "Сохранена",
-  applied: "Откликнулся",
-  interview: "Интервью",
-  rejected: "Отказ",
-  ignored: "Скрыта",
-  off_profile: "Вне профиля",
-}
 
 /**
  * Every status still gets a label on the card, but only these three are worth
@@ -29,12 +18,6 @@ const STATUS_LABELS: Record<JobStatus, string> = {
  * already brings the prefiltered pile back.
  */
 const FILTER_STATUSES: JobStatus[] = ["new", "saved", "ignored"]
-
-const ACTIONS: Array<{ status: JobStatus; label: string }> = [
-  { status: "saved", label: "Сохранить" },
-  { status: "rejected", label: "Отказ" },
-  { status: "ignored", label: "Скрыть" },
-]
 
 const DEFAULT_DIR: Record<JobSort, "asc" | "desc"> = {
   applied: "desc",
@@ -338,6 +321,11 @@ export function Jobs({
         list={jobs}
         onSelect={(job) => void openCard(job)}
         onPatch={(next) => patchJob(card.id, next)}
+        onStatus={(next) => {
+          if (next === "applied" && !inPipeline(card)) previous.current.set(card.id, card.status)
+          void setStatus(card, next)
+        }}
+        onOpenCompany={onOpenCompany}
         onJob={(next) => {
           setJobs((prev) => prev?.map((item) => (item.id === card.id ? { ...item, ...next } : item)) ?? null)
           setCard(next)
@@ -363,25 +351,8 @@ export function Jobs({
         ) : null}
         <Flags raw={card.flags} />
         <div className="row-tight" style={{ flexWrap: "wrap" }}>
-          <span className="badge badge-neutral">{STATUS_LABELS[card.status]}</span>
-          {card.viewed_at ? <span className="badge badge-neutral">просмотрена</span> : null}
-          {card.later_at ? <span className="badge badge-accent">посмотреть позже</span> : null}
           <span className="badge badge-neutral">{card.tier === "watchlist" ? "watchlist" : "discovery"}</span>
           <span className="badge badge-neutral">{card.source_label}</span>
-        </div>
-        <div className="row">
-          <button className="btn btn-sm" onClick={() => onOpenCompany(card)}>
-            Все вакансии {card.company}
-          </button>
-          {ACTIONS.map((action) => (
-            <button
-              key={action.status}
-              className={`btn btn-sm ${card.status === action.status ? "btn-primary" : ""}`}
-              onClick={() => void setStatus(card, action.status)}
-            >
-              {action.label}
-            </button>
-          ))}
         </div>
       </JobCard>
     )

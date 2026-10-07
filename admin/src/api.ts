@@ -7,6 +7,7 @@ import type {
   DiscoveredCompany,
   ExploreBoard,
   ExploreCompany,
+  InterviewStage,
   Job,
   JobStatus,
   ModelOption,
@@ -211,6 +212,25 @@ export const api = {
 
   job(id: string): Promise<{ job: Job }> {
     return request(`/jobs/${encodeURIComponent(id)}`)
+  },
+
+  addStage(jobId: string, body: { title: string; happened_on?: string | null }): Promise<{ stages: InterviewStage[] }> {
+    return request(`/jobs/${encodeURIComponent(jobId)}/stages`, { method: "POST", body: JSON.stringify(body) })
+  },
+
+  updateStage(
+    jobId: string,
+    stageId: number,
+    body: { title?: string; happened_on?: string | null },
+  ): Promise<{ stages: InterviewStage[] }> {
+    return request(`/jobs/${encodeURIComponent(jobId)}/stages/${stageId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    })
+  },
+
+  deleteStage(jobId: string, stageId: number): Promise<{ stages: InterviewStage[] }> {
+    return request(`/jobs/${encodeURIComponent(jobId)}/stages/${stageId}`, { method: "DELETE" })
   },
 
   setJobPrimary(id: string): Promise<{ job: Job }> {

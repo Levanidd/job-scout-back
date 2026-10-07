@@ -56,6 +56,7 @@ async function loadJobDetail(env: AppEnv["Bindings"], userId: number, id: string
     .bind(root, root)
     .all<DuplicateListing>()
 
+  const stages = await loadStages(env, userId, id)
   const duplicates = group.results.map((item) => ({
     id: item.id,
     url: item.url,
@@ -66,7 +67,41 @@ async function loadJobDetail(env: AppEnv["Bindings"], userId: number, id: string
     first_seen_at: item.first_seen_at,
     primary: !item.duplicate_of,
   }))
-  return { ...row, duplicates }
+  return { ...row, duplicates, stages }
+}
+
+type Stage = { id: number; title: string; happened_on: string | null }
+
+const STAGE_COLUMNS = "id, title, happened_on"
+
+async function loadStages(env: AppEnv["Bindings"], userId: number, jobId: string): Promise<Stage[]> {
+  const rows = await env.DB.prepare(
+    `SELECT ${STAGE_COLUMNS} FROM interview_stages
+     WHERE user_id = ? AND job_id = ?
+     ORDER BY happened_on IS NULL, happened_on, id`,
+  )
+    .bind(userId, jobId)
+    .all<Stage>()
+  return rows.results
+}
+
+/** A stage needs a name; the date is optional but has to be a real day when given. */
+function readStage(body: Record<string, unknown>, partial: boolean): { title?: string; happened_on?: string | null } | string {
+  const out: { title?: string; happened_on?: string | null } = {}
+  if (body.title !== undefined || !partial) {
+    const title = typeof body.title === "string" ? body.title.trim() : ""
+    if (!title) return "title required"
+    out.title = title.slice(0, 200)
+  }
+  if (body.happened_on !== undefined) {
+    const day = body.happened_on
+    if (day === null || day === "") out.happened_on = null
+    else if (typeof day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(day) && !Number.isNaN(Date.parse(day))) {
+      out.happened_on = day
+    } else return "happened_on must be YYYY-MM-DD"
+  }
+  if (partial && out.title === undefined && out.happened_on === undefined) return "nothing to update"
+  return out
 }
 
 jobs.get("/api/applied", async (c) => {
@@ -255,6 +290,55 @@ jobs.patch("/api/jobs/:id", async (c) => {
     cv_url: row?.cv_url ?? null,
     claude_comment: row?.claude_comment ?? null,
   })
+})
+
+jobs.post("/api/jobs/:id/stages", async (c) => {
+  const id = c.req.param("id")
+  const userId = currentUser(c).id
+  const body = await c.req.json<Record<string, unknown>>().catch(() => ({}) as Record<string, unknown>)
+  const stage = readStage(body, false)
+  if (typeof stage === "string") return c.json({ error: stage }, 400)
+  const exists = await c.env.DB.prepare(`SELECT id FROM jobs WHERE id = ?`).bind(id).first<{ id: string }>()
+  if (!exists) return c.json({ error: "not found" }, 404)
+  await c.env.DB.prepare(`INSERT INTO interview_stages (user_id, job_id, title, happened_on) VALUES (?, ?, ?, ?)`)
+    .bind(userId, id, stage.title, stage.happened_on ?? null)
+    .run()
+  return c.json({ stages: await loadStages(c.env, userId, id) }, 201)
+})
+
+jobs.patch("/api/jobs/:id/stages/:stageId", async (c) => {
+  const id = c.req.param("id")
+  const userId = currentUser(c).id
+  const body = await c.req.json<Record<string, unknown>>().catch(() => ({}) as Record<string, unknown>)
+  const stage = readStage(body, true)
+  if (typeof stage === "string") return c.json({ error: stage }, 400)
+  const sets: string[] = []
+  const binds: (string | null)[] = []
+  if (stage.title !== undefined) {
+    sets.push("title = ?")
+    binds.push(stage.title)
+  }
+  if (stage.happened_on !== undefined) {
+    sets.push("happened_on = ?")
+    binds.push(stage.happened_on)
+  }
+  const result = await c.env.DB.prepare(
+    `UPDATE interview_stages SET ${sets.join(", ")} WHERE id = ? AND user_id = ? AND job_id = ?`,
+  )
+    .bind(...binds, Number(c.req.param("stageId")), userId, id)
+    .run()
+  if (!result.meta.changes) return c.json({ error: "not found" }, 404)
+  return c.json({ stages: await loadStages(c.env, userId, id) })
+})
+
+jobs.delete("/api/jobs/:id/stages/:stageId", async (c) => {
+  const id = c.req.param("id")
+  const userId = currentUser(c).id
+  const result = await c.env.DB.prepare(`DELETE FROM interview_stages WHERE id = ? AND user_id = ? AND job_id = ?`)
+    .bind(Number(c.req.param("stageId")), userId, id)
+    .run()
+  if (!result.meta.changes) return c.json({ error: "not found" }, 404)
+  return c.json({ stages: await loadStages(c.env, userId, id) })
 })
 
 jobs.post("/api/jobs/:id/score", async (c) => {

@@ -51,6 +51,14 @@ export type Job = {
   source_label: string
   duplicate_of?: string | null
   duplicates?: JobDuplicate[]
+  stages?: InterviewStage[]
+}
+
+export type InterviewStage = {
+  id: number
+  title: string
+  /** `YYYY-MM-DD`; a round can be noted before its date is known. */
+  happened_on: string | null
 }
 
 export type JobDuplicate = {

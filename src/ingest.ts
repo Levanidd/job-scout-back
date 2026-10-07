@@ -299,6 +299,7 @@ export async function upsertJobs(
     if (inherit) {
       writes.push(inheritFirstSeen(env, inherit.first_seen_at, id))
       writes.push(inheritUserJobs(env, inherit.id, id))
+      writes.push(env.DB.prepare(`UPDATE interview_stages SET job_id = ? WHERE job_id = ?`).bind(id, inherit.id))
       writes.push(
         env.DB.prepare(`UPDATE jobs SET duplicate_of = ? WHERE duplicate_of = ?`).bind(id, inherit.id),
       )
@@ -369,12 +370,14 @@ function inheritUserJobs(env: Bindings, fromId: string, toId: string): D1Prepare
   return env.DB.prepare(
     `INSERT INTO user_jobs (
        user_id, job_id, status, score, score_reason, flags, notes,
-       applied_at, viewed_at, later_at, notified_at, interviewed_at
+       applied_at, viewed_at, later_at, notified_at, interviewed_at, cv_url, claude_comment
      )
      SELECT user_id, ?, status, score, score_reason, flags, notes,
-            applied_at, viewed_at, later_at, notified_at, interviewed_at
+            applied_at, viewed_at, later_at, notified_at, interviewed_at, cv_url, claude_comment
      FROM user_jobs WHERE job_id = ?
      ON CONFLICT(user_id, job_id) DO UPDATE SET
+       cv_url = COALESCE(user_jobs.cv_url, excluded.cv_url),
+       claude_comment = COALESCE(user_jobs.claude_comment, excluded.claude_comment),
        applied_at = COALESCE(user_jobs.applied_at, excluded.applied_at),
        viewed_at = COALESCE(user_jobs.viewed_at, excluded.viewed_at),
        later_at = COALESCE(user_jobs.later_at, excluded.later_at),

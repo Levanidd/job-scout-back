@@ -294,9 +294,12 @@ describe("upsertJobs", () => {
     await upsertJobs(env, source, [job()], new Set())
     const first = await one<{ id: string }>(env, `SELECT id FROM jobs`)
     await env.DB.prepare(
-      `INSERT INTO user_jobs (user_id, job_id, status, applied_at, notes, score)
-       VALUES (?, ?, 'applied', '2026-01-02 10:00:00', 'sent CV', 88)`,
+      `INSERT INTO user_jobs (user_id, job_id, status, applied_at, notes, score, cv_url, claude_comment)
+       VALUES (?, ?, 'applied', '2026-01-02 10:00:00', 'sent CV', 88, 'https://cv.example/a.pdf', 'good fit')`,
     )
+      .bind(TEST_USER_ID, first!.id)
+      .run()
+    await env.DB.prepare(`INSERT INTO interview_stages (user_id, job_id, title) VALUES (?, ?, 'HR screen')`)
       .bind(TEST_USER_ID, first!.id)
       .run()
     await env.DB.prepare(`UPDATE jobs SET closed_at = '2026-01-05 10:00:00'`).run()
@@ -305,7 +308,8 @@ describe("upsertJobs", () => {
 
     const stored = await rows<Record<string, unknown>>(
       env,
-      `SELECT j.url, j.closed_at, uj.status, uj.applied_at, uj.notes, uj.score
+      `SELECT j.url, j.closed_at, uj.status, uj.applied_at, uj.notes, uj.score, uj.cv_url, uj.claude_comment,
+              (SELECT COUNT(*) FROM interview_stages st WHERE st.job_id = j.id) AS stages
        FROM jobs j LEFT JOIN user_jobs uj ON uj.job_id = j.id AND uj.user_id = ?`,
       TEST_USER_ID,
     )
@@ -317,6 +321,9 @@ describe("upsertJobs", () => {
       applied_at: "2026-01-02 10:00:00",
       notes: "sent CV",
       score: 88,
+      cv_url: "https://cv.example/a.pdf",
+      claude_comment: "good fit",
+      stages: 1,
     })
   })
 

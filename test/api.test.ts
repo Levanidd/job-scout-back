@@ -242,6 +242,32 @@ describe("jobs", () => {
     expect(cleared.body).toMatchObject({ cv_url: null, claude_comment: null })
   })
 
+  it("keeps a list of interview stages that can be added, edited and removed", async () => {
+    const id = await seedJob()
+    const url = `/api/jobs/${id}/stages`
+
+    expect((await call(url, { method: "POST", body: JSON.stringify({ title: " " }) })).status).toBe(400)
+    expect(
+      (await call(url, { method: "POST", body: JSON.stringify({ title: "Tech", happened_on: "soon" }) })).status,
+    ).toBe(400)
+
+    await call(url, { method: "POST", body: JSON.stringify({ title: "Tech interview", happened_on: "2026-03-10" }) })
+    const added = await call(url, { method: "POST", body: JSON.stringify({ title: "HR screen", happened_on: "2026-03-02" }) })
+    expect(added.status).toBe(201)
+    expect(added.body.stages.map((stage: { title: string }) => stage.title)).toEqual(["HR screen", "Tech interview"])
+
+    const [hr, tech] = added.body.stages
+    const edited = await call(`${url}/${tech.id}`, { method: "PATCH", body: JSON.stringify({ title: "System design" }) })
+    expect(edited.body.stages[1]).toMatchObject({ title: "System design", happened_on: "2026-03-10" })
+
+    const removed = await call(`${url}/${hr.id}`, { method: "DELETE" })
+    expect(removed.body.stages).toHaveLength(1)
+    expect((await call(`/api/jobs/${id}`)).body.job.stages).toEqual([
+      { id: tech.id, title: "System design", happened_on: "2026-03-10" },
+    ])
+    expect((await call(`${url}/${hr.id}`, { method: "DELETE" })).status).toBe(404)
+  })
+
   it("404s on a job that is not there", async () => {
     expect((await call("/api/jobs/nope")).status).toBe(404)
     expect(

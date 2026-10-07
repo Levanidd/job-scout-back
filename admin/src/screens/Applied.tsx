@@ -24,12 +24,6 @@ const PIPE: Array<{ id: PipeFilter; label: string }> = [
   { id: "rejected", label: "Отказ" },
 ]
 
-const PIPE_ACTIONS: Array<{ status: JobStatus; label: string }> = [
-  { status: "applied", label: "Подался" },
-  { status: "interview", label: "Интервью" },
-  { status: "rejected", label: "Отказ" },
-]
-
 const PIPE_LABELS: Record<"applied" | "interview" | "rejected", string> = {
   applied: "Подался",
   interview: "Интервью",
@@ -368,9 +362,6 @@ export function Applied({
             return true
           }) ?? null,
     )
-    if (status === "applied" && result.status !== "applied") setOpen(null)
-    if (status === "rejected" && result.status !== "rejected") setOpen(null)
-    if (status === "interview" && result.status !== "interview" && !result.interviewed_at) setOpen(null)
   }
 
   if (composing) {
@@ -401,26 +392,13 @@ export function Applied({
         list={rows}
         onSelect={(job) => void openCard(job)}
         onPatch={patchOpen}
+        onStatus={(next) => void setPipeline(open, next)}
+        onOpenCompany={onOpenCompany}
         onJob={(next) => {
           setJobs((prev) => prev?.map((item) => (item.id === open.id ? { ...item, ...next } : item)) ?? null)
           setOpen(next)
         }}
-      >
-        <div className="row">
-          <button className="btn btn-sm" onClick={() => onOpenCompany(open)}>
-            Все вакансии {open.company}
-          </button>
-          {PIPE_ACTIONS.map((action) => (
-            <button
-              key={action.status}
-              className={`btn btn-sm ${open.status === action.status ? "btn-primary" : ""}`}
-              onClick={() => void setPipeline(open, action.status)}
-            >
-              {action.label}
-            </button>
-          ))}
-        </div>
-      </JobCard>
+      />
     )
   }
 
