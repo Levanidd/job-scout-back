@@ -5,7 +5,7 @@ import { useAction, useApp, useLoader } from "../app-context"
 import { usePersistentState } from "../persist"
 import { ConfirmDialog } from "../components/ConfirmDialog"
 import { RefreshIcon } from "../components/icons"
-import { JobCard } from "../components/JobCard"
+import { JobCard, openOnDoubleClick } from "../components/JobCard"
 import { MultiSelect } from "../components/MultiSelect"
 import { SortHeader } from "../components/SortHeader"
 import { Age, Count, Empty, Flags, ScoreBadge, Skeletons, formatSalary, plural } from "../components/common"
@@ -335,6 +335,8 @@ export function Jobs({
       <JobCard
         job={card}
         onBack={() => setCard(null)}
+        list={jobs}
+        onSelect={(job) => void openCard(job)}
         onPatch={(next) => patchJob(card.id, next)}
         onJob={(next) => {
           setJobs((prev) => prev?.map((item) => (item.id === card.id ? { ...item, ...next } : item)) ?? null)
@@ -591,7 +593,6 @@ export function Jobs({
                     className="col-date"
                     title="Когда вакансия изменилась у источника"
                   />
-                  <th className="col-more" />
                 </tr>
               </thead>
               <tbody>
@@ -599,7 +600,11 @@ export function Jobs({
                   const pay = formatSalary(job.salary_min, job.salary_max, job.salary_currency)
                   return (
                   <Fragment key={job.id}>
-                    <tr className={`${job.viewed_at && !inPipeline(job) ? "is-viewed" : ""} ${inPipeline(job) ? "is-applied" : ""} ${scoring === job.id || batch ? "is-busy" : ""}`.trim()}>
+                    <tr
+                      className={`row-open ${job.viewed_at && !inPipeline(job) ? "is-viewed" : ""} ${inPipeline(job) ? "is-applied" : ""} ${scoring === job.id || batch ? "is-busy" : ""}`.trim()}
+                      title="Двойной клик — открыть карточку"
+                      onDoubleClick={openOnDoubleClick(() => void openCard(job))}
+                    >
                       <td className="col-check">
                         <input
                           type="checkbox"
@@ -674,11 +679,6 @@ export function Jobs({
                       </td>
                       <td className="col-date">
                         <Age value={job.changed_at ?? job.first_seen_at} warnAfter={7} />
-                      </td>
-                      <td className="col-more">
-                        <button className="btn btn-ghost btn-sm" onClick={() => void openCard(job)}>
-                          Карточка
-                        </button>
                       </td>
                     </tr>
                   </Fragment>

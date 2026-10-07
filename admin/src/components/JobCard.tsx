@@ -1,9 +1,68 @@
-import { useEffect, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react"
 
 import { api } from "../api"
 import { useAction } from "../app-context"
 import { Age, Field, ScoreBadge, formatDate, formatSalary } from "./common"
+import { DocumentIcon } from "./icons"
 import type { Job, JobDuplicate } from "../types"
+
+/**
+ * Rows open the card on double click. Checkboxes, links and buttons inside the
+ * row keep their own meaning, so a double click that lands on them is ignored.
+ */
+export function openOnDoubleClick(open: () => void) {
+  return (event: MouseEvent<HTMLElement>) => {
+    if ((event.target as HTMLElement).closest("a, button, input, select, textarea, label")) return
+    window.getSelection()?.removeAllRanges()
+    open()
+  }
+}
+
+function listScore(job: Job): number | null {
+  return job.status === "off_profile" ? null : job.score
+}
+
+function SideList({ jobs, activeId, onSelect }: { jobs: Job[]; activeId: string; onSelect: (job: Job) => void }) {
+  const active = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    active.current?.scrollIntoView({ block: "nearest" })
+  }, [activeId])
+
+  return (
+    <nav className="job-side" aria-label="Вакансии из списка">
+      {jobs.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          ref={item.id === activeId ? active : undefined}
+          className={`job-side-item ${item.id === activeId ? "is-active" : ""}`.trim()}
+          aria-current={item.id === activeId ? "true" : undefined}
+          onClick={() => onSelect(item)}
+        >
+          <span className="job-side-text">
+            <span className="job-side-title">{item.title}</span>
+            <span className="job-side-company">{item.company}</span>
+          </span>
+          <ScoreBadge score={listScore(item)} />
+        </button>
+      ))}
+    </nav>
+  )
+}
+
+function ClaudeComment({ text }: { text: string | null | undefined }) {
+  return (
+    <div className="claude-comment">
+      <span className="field-label">Комментарий Claude</span>
+      {text ? (
+        <div className="claude-comment-body">{text}</div>
+      ) : (
+        <p className="muted claude-comment-empty">Пока нет</p>
+      )}
+    </div>
+  )
+}
 
 function Meta({ label, value }: { label: string; value: string | null }) {
   return (
@@ -33,7 +92,7 @@ function Notes({ job, onSaved }: { job: Job; onSaved: (notes: string) => void })
   }
 
   return (
-    <>
+    <div className="job-notes-own">
       <Field label="Заметки">
         <textarea
           className="textarea textarea-notes"
@@ -45,7 +104,7 @@ function Notes({ job, onSaved }: { job: Job; onSaved: (notes: string) => void })
       <button className="btn btn-sm" disabled={busy || text === saved} onClick={() => void save()}>
         {busy ? "Сохраняю…" : "Сохранить заметку"}
       </button>
-    </>
+    </div>
   )
 }
 
@@ -102,6 +161,8 @@ export function JobCard({
   onPatch,
   onJob,
   scoreExtra,
+  list,
+  onSelect,
   children,
 }: {
   job: Job
@@ -111,9 +172,13 @@ export function JobCard({
   onJob?: (job: Job) => void
   /** Rendered next to the score, for the recount button on the job list. */
   scoreExtra?: ReactNode
+  /** The list the card was opened from, shown on the left to hop between jobs. */
+  list?: Job[] | null
+  onSelect?: (job: Job) => void
   children?: ReactNode
 }) {
   const pay = formatSalary(job.salary_min, job.salary_max, job.salary_currency)
+  const side = list && onSelect && list.length > 0 ? list : null
   return (
     <>
       <div className="row">
@@ -121,45 +186,63 @@ export function JobCard({
           ← К списку
         </button>
       </div>
-      <article className="card">
-        <div className="card-head">
-          <div>
-            <h3 className="card-title">
-              <a href={job.url} target="_blank" rel="noreferrer">
-                {job.title}
-              </a>
-            </h3>
-            <p className="card-sub">
-              {job.company}
-              {job.location ? ` · ${job.location}` : ""}
-              {pay ? ` · ${pay}` : ""}
-            </p>
+      <div className={side ? "job-view" : undefined}>
+        {side && onSelect ? <SideList jobs={side} activeId={job.id} onSelect={onSelect} /> : null}
+        <article className="card job-view-main">
+          <div className="card-head">
+            <div>
+              <h3 className="card-title card-title-row">
+                <a href={job.url} target="_blank" rel="noreferrer">
+                  {job.title}
+                </a>
+                {job.cv_url ? (
+                  <a
+                    className="icon-btn cv-link"
+                    href={job.cv_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="Открыть CV"
+                    aria-label="Открыть CV"
+                  >
+                    <DocumentIcon />
+                  </a>
+                ) : null}
+              </h3>
+              <p className="card-sub">
+                {job.company}
+                {job.location ? ` · ${job.location}` : ""}
+                {pay ? ` · ${pay}` : ""}
+              </p>
+            </div>
+            <div className="score-cell">
+              <ScoreBadge score={job.score} />
+              {scoreExtra}
+            </div>
           </div>
-          <div className="score-cell">
-            <ScoreBadge score={job.score} />
-            {scoreExtra}
+
+          <div className="applied-meta">
+            <Meta label="Опубликована" value={job.posted_at} />
+            <Meta label="Добавлена" value={job.first_seen_at} />
+            <Meta label="Обновлена" value={job.changed_at ?? job.first_seen_at} />
+            <Meta label="Подался" value={job.applied_at} />
+            {job.interviewed_at ? <Meta label="Собес" value={job.interviewed_at} /> : null}
           </div>
-        </div>
 
-        <div className="applied-meta">
-          <Meta label="Опубликована" value={job.posted_at} />
-          <Meta label="Добавлена" value={job.first_seen_at} />
-          <Meta label="Обновлена" value={job.changed_at ?? job.first_seen_at} />
-          <Meta label="Подался" value={job.applied_at} />
-          {job.interviewed_at ? <Meta label="Собес" value={job.interviewed_at} /> : null}
-        </div>
+          {children}
 
-        {children}
+          {job.description ? (
+            <div className="job-description">{job.description}</div>
+          ) : (
+            <p className="muted">Описание не сохранилось — его не было в источнике или его отсекли до скоринга.</p>
+          )}
 
-        {job.description ? (
-          <div className="job-description">{job.description}</div>
-        ) : (
-          <p className="muted">Описание не сохранилось — его не было в источнике или его отсекли до скоринга.</p>
-        )}
-
-        <Notes job={job} onSaved={(notes) => onPatch({ notes })} />
-        <Duplicates job={job} onJob={onJob} />
-      </article>
+          <div className="job-notes">
+            <Notes job={job} onSaved={(notes) => onPatch({ notes })} />
+            <ClaudeComment text={job.claude_comment} />
+          </div>
+          <Duplicates job={job} onJob={onJob} />
+        </article>
+      </div>
     </>
   )
 }

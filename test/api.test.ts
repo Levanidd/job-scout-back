@@ -224,6 +224,24 @@ describe("jobs", () => {
     expect(await call(`/api/jobs/${id}`, { method: "PATCH", body: JSON.stringify({}) })).toMatchObject({ status: 400 })
   })
 
+  it("stores the CV link and Claude's comment, and clears them with an empty value", async () => {
+    const id = await seedJob()
+    const patch = (body: unknown) => call(`/api/jobs/${id}`, { method: "PATCH", body: JSON.stringify(body) })
+
+    const saved = await patch({ cv_url: " https://docs.example.com/cv.pdf ", claude_comment: "Strong fit" })
+    expect(saved.body).toMatchObject({ cv_url: "https://docs.example.com/cv.pdf", claude_comment: "Strong fit" })
+    expect((await call(`/api/jobs/${id}`)).body.job).toMatchObject({
+      cv_url: "https://docs.example.com/cv.pdf",
+      claude_comment: "Strong fit",
+    })
+
+    expect((await patch({ cv_url: "javascript:alert(1)" })).status).toBe(400)
+    expect((await patch({ cv_url: "not a link" })).status).toBe(400)
+
+    const cleared = await patch({ cv_url: "", claude_comment: "  " })
+    expect(cleared.body).toMatchObject({ cv_url: null, claude_comment: null })
+  })
+
   it("404s on a job that is not there", async () => {
     expect((await call("/api/jobs/nope")).status).toBe(404)
     expect(

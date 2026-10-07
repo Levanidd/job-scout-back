@@ -3,7 +3,7 @@ import { useCallback, useMemo, useState } from "react"
 import { api } from "../api"
 import { useAction, useLoader } from "../app-context"
 import { oneOf, usePersistentState } from "../persist"
-import { JobCard } from "../components/JobCard"
+import { JobCard, openOnDoubleClick } from "../components/JobCard"
 import { SortHeader } from "../components/SortHeader"
 import { Age, Count, Empty, Field, ScoreBadge, Skeletons, formatSalary } from "../components/common"
 import type { Job, JobStatus } from "../types"
@@ -334,7 +334,7 @@ export function Applied({
   async function openCard(job: Job) {
     setOpen(job)
     const result = await run(() => api.job(job.id))
-    if (result) setOpen(result.job)
+    if (result) setOpen((prev) => (prev && prev.id === job.id ? result.job : prev))
   }
 
   function patchOpen(next: Partial<Job>) {
@@ -398,6 +398,8 @@ export function Applied({
       <JobCard
         job={open}
         onBack={() => setOpen(null)}
+        list={rows}
+        onSelect={(job) => void openCard(job)}
         onPatch={patchOpen}
         onJob={(next) => {
           setJobs((prev) => prev?.map((item) => (item.id === open.id ? { ...item, ...next } : item)) ?? null)
@@ -502,12 +504,16 @@ export function Applied({
                     Собес
                   </th>
                 ) : null}
-                <th className="col-more" />
               </tr>
             </thead>
             <tbody>
               {rows.map((job) => (
-                <tr key={job.id}>
+                <tr
+                  key={job.id}
+                  className="row-open"
+                  title="Двойной клик — открыть карточку"
+                  onDoubleClick={openOnDoubleClick(() => void openCard(job))}
+                >
                   <td>
                     <a href={job.url} target="_blank" rel="noreferrer">
                       {job.title}
@@ -558,11 +564,6 @@ export function Applied({
                       />
                     </td>
                   ) : null}
-                  <td className="col-more">
-                    <button className="btn btn-ghost btn-sm" onClick={() => void openCard(job)}>
-                      Карточка
-                    </button>
-                  </td>
                 </tr>
               ))}
             </tbody>

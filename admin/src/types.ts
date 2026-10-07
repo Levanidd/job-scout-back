@@ -44,6 +44,8 @@ export type Job = {
   later_at: string | null
   interviewed_at: string | null
   notes?: string | null
+  cv_url?: string | null
+  claude_comment?: string | null
   description?: string | null
   tier: Tier
   source_label: string

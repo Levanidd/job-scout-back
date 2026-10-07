@@ -10,6 +10,20 @@ export const jobs = new Hono<AppEnv>()
 
 const STATUSES = ["new", "notified", "saved", "applied", "interview", "rejected", "ignored", "off_profile"]
 
+/** Empty clears the link; anything that is not an http(s) URL is refused, since the card opens it. */
+function cleanCvUrl(raw: unknown): string | null | false {
+  if (raw === null) return null
+  if (typeof raw !== "string") return false
+  const value = raw.trim()
+  if (!value) return null
+  try {
+    const url = new URL(value)
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : false
+  } catch {
+    return false
+  }
+}
+
 type DuplicateListing = {
   id: string
   url: string
@@ -23,7 +37,7 @@ type DuplicateListing = {
 
 async function loadJobDetail(env: AppEnv["Bindings"], userId: number, id: string) {
   const row = await env.DB.prepare(
-    `SELECT ${JOB_COLUMNS}, j.description, uj.notes, s.tier, s.label as source_label
+    `SELECT ${JOB_COLUMNS}, j.description, uj.notes, uj.cv_url, uj.claude_comment, s.tier, s.label as source_label
      ${JOB_SOURCE}
      WHERE j.id = ?`,
   )
@@ -148,13 +162,27 @@ jobs.get("/api/jobs/:id", async (c) => {
 jobs.patch("/api/jobs/:id", async (c) => {
   const id = c.req.param("id")
   const userId = currentUser(c).id
-  const body = await c.req.json<{ status?: string; notes?: string; viewed?: boolean; later?: boolean }>()
+  const body = await c.req.json<{
+    status?: string
+    notes?: string
+    viewed?: boolean
+    later?: boolean
+    cv_url?: string | null
+    claude_comment?: string | null
+  }>()
   if (body.status && !STATUSES.includes(body.status)) return c.json({ error: "bad status" }, 400)
+  const cvUrl = body.cv_url === undefined ? undefined : cleanCvUrl(body.cv_url)
+  if (cvUrl === false) return c.json({ error: "cv_url must be an http(s) link" }, 400)
+  if (body.claude_comment !== undefined && body.claude_comment !== null && typeof body.claude_comment !== "string") {
+    return c.json({ error: "claude_comment must be text" }, 400)
+  }
   if (
     body.status === undefined &&
     body.notes === undefined &&
     typeof body.viewed !== "boolean" &&
-    typeof body.later !== "boolean"
+    typeof body.later !== "boolean" &&
+    cvUrl === undefined &&
+    body.claude_comment === undefined
   ) {
     return c.json({ error: "nothing to update" }, 400)
   }
@@ -188,13 +216,22 @@ jobs.patch("/api/jobs/:id", async (c) => {
   if (typeof body.later === "boolean") {
     sets.push(body.later ? "later_at = COALESCE(later_at, datetime('now'))" : "later_at = NULL")
   }
+  if (cvUrl !== undefined) {
+    sets.push("cv_url = ?")
+    binds.push(cvUrl)
+  }
+  if (body.claude_comment !== undefined) {
+    sets.push("claude_comment = ?")
+    binds.push(body.claude_comment?.trim() || null)
+  }
 
   await c.env.DB.prepare(`UPDATE user_jobs SET ${sets.join(", ")} WHERE user_id = ? AND job_id = ?`)
     .bind(...binds, userId, id)
     .run()
 
   const row = await c.env.DB.prepare(
-    `SELECT status, notes, applied_at, viewed_at, later_at, interviewed_at FROM user_jobs WHERE user_id = ? AND job_id = ?`,
+    `SELECT status, notes, applied_at, viewed_at, later_at, interviewed_at, cv_url, claude_comment
+     FROM user_jobs WHERE user_id = ? AND job_id = ?`,
   )
     .bind(userId, id)
     .first<{
@@ -204,6 +241,8 @@ jobs.patch("/api/jobs/:id", async (c) => {
       viewed_at: string | null
       later_at: string | null
       interviewed_at: string | null
+      cv_url: string | null
+      claude_comment: string | null
     }>()
   return c.json({
     ok: true,
@@ -213,6 +252,8 @@ jobs.patch("/api/jobs/:id", async (c) => {
     viewed_at: row?.viewed_at ?? null,
     later_at: row?.later_at ?? null,
     interviewed_at: row?.interviewed_at ?? null,
+    cv_url: row?.cv_url ?? null,
+    claude_comment: row?.claude_comment ?? null,
   })
 })
 

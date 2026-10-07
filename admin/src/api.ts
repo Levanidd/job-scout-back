@@ -123,6 +123,8 @@ export type JobPatch = {
   viewed_at: string | null
   later_at: string | null
   interviewed_at: string | null
+  cv_url: string | null
+  claude_comment: string | null
 }
 
 function patchJob(
