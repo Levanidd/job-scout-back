@@ -48,12 +48,10 @@ export const greenhouse: Adapter = {
   provider: "greenhouse",
   kind: "company",
   detect(url) {
-    const host = url.hostname
-    if (host === "boards.greenhouse.io" || host === "job-boards.greenhouse.io") {
-      const token = url.pathname.split("/").filter(Boolean)[0]
-      return token ?? null
-    }
-    return null
+    if (!/^(?:job-)?boards\.(?:eu\.)?greenhouse\.io$/.test(url.hostname)) return null
+    const token = url.pathname.split("/").filter(Boolean)[0]
+    if (token === "embed") return url.searchParams.get("for")
+    return token ?? null
   },
   async fetchJobs(token) {
     const json = await fetchJson(`https://boards-api.greenhouse.io/v1/boards/${token}/jobs?content=true`)

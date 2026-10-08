@@ -31,9 +31,14 @@ const ATS_MARKERS: {
     build: (m) => `https://${m[1].toLowerCase()}.${m[2].toLowerCase()}.myworkdayjobs.com/${m[3]}`,
   },
   // The embed script is served both as `job_board?for=` and `job_board/js?for=`.
-  { re: /boards\.greenhouse\.io\/embed\/job_board(?:\/js)?\?for=([a-z0-9_-]+)/i, provider: "greenhouse", group: 1 },
-  { re: /job-boards\.greenhouse\.io\/([a-z0-9_-]+)/i, provider: "greenhouse", group: 1 },
-  { re: /boards\.greenhouse\.io\/(?!embed\b)([a-z0-9_-]+)/i, provider: "greenhouse", group: 1 },
+  // EU-hosted boards live under `boards.eu.` / `job-boards.eu.`; the board API answers for both.
+  {
+    re: /boards\.(?:eu\.)?greenhouse\.io\/embed\/job_board(?:\/js)?\?for=([a-z0-9_-]+)/i,
+    provider: "greenhouse",
+    group: 1,
+  },
+  { re: /job-boards\.(?:eu\.)?greenhouse\.io\/(?!embed\b)([a-z0-9_-]+)/i, provider: "greenhouse", group: 1 },
+  { re: /boards\.(?:eu\.)?greenhouse\.io\/(?!embed\b)([a-z0-9_-]+)/i, provider: "greenhouse", group: 1 },
   { re: /jobs\.lever\.co\/([a-z0-9_-]+)/i, provider: "lever", group: 1 },
   { re: /api\.ashbyhq\.com\/posting-api\/job-board\/([a-z0-9_-]+)/i, provider: "ashby", group: 1 },
   { re: /jobs\.ashbyhq\.com\/([a-z0-9_-]+)/i, provider: "ashby", group: 1 },

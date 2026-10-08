@@ -298,6 +298,10 @@ describe("adapter parsers", () => {
       provider: "greenhouse",
       token: "airbnb",
     })
+    expect(detectToken(new URL("https://job-boards.eu.greenhouse.io/raisin/jobs/4945588101"))?.token).toBe("raisin")
+    expect(detectToken(new URL("https://boards.eu.greenhouse.io/embed/job_board?for=lucanetgroup"))?.token).toBe(
+      "lucanetgroup",
+    )
     expect(detectToken(new URL("https://jobs.lever.co/palantir/abc"))).toEqual({
       provider: "lever",
       token: "palantir",
@@ -445,6 +449,14 @@ describe("new career-ops boards", () => {
     expect(matchMarkers(`<a href="https://jobs.lever.co/acme">Jobs</a>`, "https://acme.com")).toEqual({
       provider: "lever",
       token: "acme",
+    })
+  })
+
+  it("reads an EU-hosted Greenhouse embed off a company page", () => {
+    const page = `<script src="https://boards.eu.greenhouse.io/embed/job_board/js?for=lucanetgroup"></script>`
+    expect(matchMarkers(page, "https://www.lucanet.com/en/careers/jobs/")).toEqual({
+      provider: "greenhouse",
+      token: "lucanetgroup",
     })
   })
 
