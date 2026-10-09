@@ -19,6 +19,8 @@ import { parseWorkable } from "../../src/adapters/workable"
 import { parseAdzuna } from "../../src/adapters/adzuna"
 import { amazonCategorySlug, amazonToken, parseAmazon } from "../../src/adapters/amazon"
 import { readWorkdayDescription, workdayDetailUrl } from "../../src/adapters/workday"
+import { parseZalandoPage, readZalandoDescription, zalandoDetailUrl } from "../../src/adapters/zalando"
+import { bodyComesLater } from "../../src/adapters/details"
 import { getroBoard } from "../../src/adapters/getro"
 import { ibmFilters } from "../../src/adapters/ibm"
 import { startupJobsToken } from "../../src/adapters/startup-jobs"
@@ -530,5 +532,72 @@ describe("workday descriptions", () => {
         jobPostingInfo: { jobDescription: "<p><b>Job Title</b> Analyst</p><p>Build the ledger.</p>" },
       }),
     ).toBe("Job Title Analyst Build the ledger.")
+  })
+})
+
+/** A page the way Next.js ships it: the data split over `self.__next_f.push` string chunks. */
+function flightPage(...chunks: string[]): string {
+  const scripts = chunks.map((chunk) => `<script>self.__next_f.push([1,${JSON.stringify(chunk)}])</script>`)
+  return `<html><head><meta name="description" content="Zalando Career Website"/></head><body>${scripts.join("")}</body></html>`
+}
+
+describe("zalando", () => {
+  it("reads postings from the list page, split across chunks", () => {
+    const data = JSON.stringify({
+      data: [
+        {
+          title: "Senior Principal Product Manager - Search {Berlin}",
+          id: "2724971",
+          entity: "Zalando SE",
+          offices: ["Berlin", "Dublin"],
+          experience_level: "Leadership",
+          updated_at: "2026-10-06T00:44:06.199-07:00",
+        },
+        { title: "", id: "1" },
+      ],
+      total: 167,
+      next: "/search?q=&filters=%7B%7D&limit=15&offset=15",
+    })
+    const html = flightPage(`1:["$","p",null,{"children":"7 Jobs"}]\n29:${data.slice(0, 40)}`, `${data.slice(40)}\n`)
+    expect(parseZalandoPage(html)).toEqual({
+      total: 167,
+      jobs: [
+        {
+          externalId: "2724971",
+          title: "Senior Principal Product Manager - Search {Berlin}",
+          company: "Zalando",
+          location: "Berlin, Dublin",
+          url: "https://jobs.zalando.com/en/jobs/2724971",
+          postedAt: "2026-10-06T00:44:06.199-07:00",
+        },
+      ],
+    })
+    expect(parseZalandoPage(flightPage('5:{"data":[],"total":167}'))).toEqual({ jobs: [], total: 167 })
+  })
+
+  it("follows the text reference to the posting body", () => {
+    const body = "<h1><b>THE ROLE</b></h1><p>Own search ranking — für alle.</p>"
+    const length = new TextEncoder().encode(body).length.toString(16)
+    const html = flightPage(
+      `9:{"content":"$31","rawData":{"Company":"Zalando SE","Job_Description":"$32"}}\n131:T5,other\n`,
+      `32:T${length},`,
+      `${body}33:["$","div",null,{}]\n`,
+    )
+    expect(readZalandoDescription(html)).toBe("THE ROLE Own search ranking — für alle.")
+    expect(readZalandoDescription(flightPage('9:{"Job_Description":"Inline text"}'))).toBe("Inline text")
+    expect(readZalandoDescription(flightPage("9:{}"))).toBeUndefined()
+  })
+
+  it("recognises the career site and posting links", () => {
+    expect(detectToken(new URL("https://jobs.zalando.com/de/jobs?location=Berlin&level=Leadership"))).toEqual({
+      provider: "zalando",
+      token: "zalando",
+    })
+    expect(zalandoDetailUrl("https://jobs.zalando.com/de/jobs/2724849-Principal-Product-Manager")).toBe(
+      "https://jobs.zalando.com/en/jobs/2724849",
+    )
+    expect(zalandoDetailUrl("https://jobs.zalando.com/en/jobs")).toBeNull()
+    expect(bodyComesLater("https://jobs.zalando.com/en/jobs/2724849")).toBe(true)
+    expect(bodyComesLater("https://boards.greenhouse.io/acme/jobs/1")).toBe(false)
   })
 })

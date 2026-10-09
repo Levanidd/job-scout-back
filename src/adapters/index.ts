@@ -67,6 +67,7 @@ import { workable } from "./workable"
 import { workday } from "./workday"
 import { workingnomads } from "./workingnomads"
 import { wttj } from "./wttj"
+import { zalando } from "./zalando"
 
 export const adapters: Adapter[] = [
   greenhouse,
@@ -104,6 +105,7 @@ export const adapters: Adapter[] = [
   tkms,
   ibm,
   dassault,
+  zalando,
   arbeitsagentur,
   amazon,
   arbeitnow,

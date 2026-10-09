@@ -1,5 +1,5 @@
 import { getAdapter } from "./adapters"
-import { fetchWorkdayDescription, workdayDetailUrl } from "./adapters/workday"
+import { bodyComesLater, fetchLateBody } from "./adapters/details"
 import { companyKey, companiesRelated, dedupKey, jobHash, titleKey } from "./company-key"
 import { chunk, placeholders, runBatch, selectIn } from "./db"
 import { message } from "./errors"
@@ -599,23 +599,23 @@ async function profileContent(env: Bindings, userId: number): Promise<string> {
   return row?.content ?? ""
 }
 
-/** How many Workday detail pages to open at once. The board rate-limits bursts. */
-const WORKDAY_DETAIL_CONCURRENCY = 4
+/** How many detail pages to open at once. Workday rate-limits bursts. */
+const DETAIL_CONCURRENCY = 4
 
 /**
- * The listing we stored has no body. Pull it before the model runs and keep it,
- * so the card and a later rescore don't fetch it again.
+ * Some boards (Workday, Zalando) list postings without a body. Pull it before
+ * the model runs and keep it, so the card and a later rescore don't fetch it again.
  */
-async function fillWorkdayDescriptions(
+async function fillLateDescriptions(
   env: Bindings,
   rows: Array<{ id: string; url: string; description: string | null }>,
 ): Promise<Map<string, string>> {
-  const missing = rows.filter((row) => !row.description && workdayDetailUrl(row.url))
+  const missing = rows.filter((row) => !row.description && bodyComesLater(row.url))
   const found = new Map<string, string>()
   const writes: D1PreparedStatement[] = []
-  for (const part of chunk(missing, WORKDAY_DETAIL_CONCURRENCY)) {
+  for (const part of chunk(missing, DETAIL_CONCURRENCY)) {
     const fetched = await Promise.all(
-      part.map(async (row) => ({ id: row.id, text: await fetchWorkdayDescription(row.url) })),
+      part.map(async (row) => ({ id: row.id, text: await fetchLateBody(row.url) })),
     )
     for (const item of fetched) {
       if (!item.text) continue
@@ -670,9 +670,9 @@ export async function prefilterAndScore(env: Bindings, userId: number, limit?: n
 
   for (const job of candidates) {
     const key = job.dedup_key
-    // A Workday row scored from the title alone has to be judged again once
-    // its posting body is available. Inheriting that old verdict would skip it.
-    const needsText = !job.description && Boolean(workdayDetailUrl(job.url))
+    // A row scored from the title alone has to be judged again once its
+    // posting body is available. Inheriting that old verdict would skip it.
+    const needsText = !job.description && bodyComesLater(job.url)
     if (key && !needsText) {
       const known = verdicts.get(key)
       if (known) {
@@ -711,7 +711,7 @@ export async function prefilterAndScore(env: Bindings, userId: number, limit?: n
       (list) => `SELECT id, url, description FROM jobs WHERE id IN (${list})`,
       batch.map((item) => item.id),
     )
-    const filled = await fillWorkdayDescriptions(env, bodies)
+    const filled = await fillLateDescriptions(env, bodies)
     const byId = new Map(bodies.map((row) => [row.id, row.description ?? ""]))
     for (const [id, text] of filled) byId.set(id, text)
     for (const item of batch) {
@@ -862,7 +862,7 @@ export async function scoreJobsByIds(env: Bindings, ids: string[], userId: numbe
     }>()
   if (rows.results.length === 0) throw new Error("not found")
 
-  const filled = await fillWorkdayDescriptions(env, rows.results)
+  const filled = await fillLateDescriptions(env, rows.results)
   const scores = await scoreJobs(
     rows.results.map((job) => ({
       external_id: job.id,
