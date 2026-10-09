@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest"
 
 import { startCycle, walkCycle } from "../src/cycle"
 import worker from "../src/index"
-import { upsertJobs } from "../src/ingest"
+import { pickSources, upsertJobs, type SourcePolicy } from "../src/ingest"
 import { dueSlot, maybeAutoRun, sanitizeTimes, saveSchedule } from "../src/schedule"
 import type { RawJob, SourceRow } from "../src/types"
 import { one, testEnv, type TestEnv } from "./helpers/d1"
@@ -506,6 +506,63 @@ describe("run", () => {
     await seedJob()
     expect((await call("/api/run/plan")).body.sources).toHaveLength(1)
   })
+
+  it("has a regular user's run catch up only on what the last scheduled run missed", async () => {
+    await env.DB.prepare(
+      `INSERT INTO cycle_runs (kind, status, started_at) VALUES ('auto', 'done', datetime('now', '-5 hours'))`,
+    ).run()
+    const add = async (token: string, lastRun: string | null, ok?: number) => {
+      const source = await env.DB.prepare(
+        `INSERT INTO sources (kind, tier, label, provider, token, last_run_at)
+         VALUES ('company', 'watchlist', ?1, 'greenhouse', ?1, ${lastRun ?? "NULL"}) RETURNING id`,
+      )
+        .bind(token)
+        .first<{ id: number }>()
+      if (ok !== undefined) {
+        await env.DB.prepare(`INSERT INTO source_runs (source_id, ok) VALUES (?, ?)`).bind(source!.id, ok).run()
+      }
+    }
+    await add("walked", "datetime('now', '-4 hours')", 1)
+    await add("missed", "datetime('now', '-6 hours')", 1)
+    await add("failed", "datetime('now', '-1 hours')", 0)
+    await add("added", null)
+
+    const tokens = async (policy: SourcePolicy) =>
+      (await pickSources(env, policy)).map((source) => source.token).sort()
+    expect(await tokens("catch_up")).toEqual(["added", "failed", "missed"])
+    expect(await tokens("throttled")).toEqual(["added", "failed", "missed", "walked"])
+
+    const created = await call("/api/users", { method: "POST", body: JSON.stringify({ name: "Лена" }) })
+    const plan = async (token?: string) =>
+      ((await call("/api/run/plan", token ? { token } : {})).body.sources as Array<{ label: string }>)
+        .map((source) => source.label)
+        .sort()
+    expect(await plan(created.body.user.token)).toEqual(["added", "failed", "missed"])
+    expect(await plan()).toEqual(["added", "failed", "missed", "walked"])
+  })
+
+  it("scores for a user who joins a run someone else started", async () => {
+    await seedJob()
+    const created = await call("/api/users", { method: "POST", body: JSON.stringify({ name: "Лена" }) })
+    const lena = created.body.user.id as number
+
+    await startCycle(env, undefined, 1)
+    await startCycle(env, undefined, lena)
+    await startCycle(env, undefined, lena)
+    expect(await one(env, `SELECT score_queue FROM cycles WHERE id = 1`)).toEqual({ score_queue: `[${lena}]` })
+
+    await walkCycle(env)
+    expect(await one(env, `SELECT status, score_queue FROM cycles WHERE id = 1`)).toEqual({
+      status: "done",
+      score_queue: "[]",
+    })
+    const scored = await one<{ n: number }>(
+      env,
+      `SELECT COUNT(*) AS n FROM user_jobs WHERE user_id = ? AND score IS NOT NULL`,
+      lena,
+    )
+    expect(scored?.n).toBe(1)
+  })
 })
 
 describe("auto-run", () => {
@@ -647,6 +704,11 @@ describe("users", () => {
       (await call("/api/settings", { method: "PUT", token, body: JSON.stringify({ model: "x" }) })).status,
     ).toBe(403)
     expect((await call("/api/users", { token })).status).toBe(403)
+    expect((await call("/api/explore/boards", { token })).status).toBe(403)
+    expect((await call("/api/explore?providers=himalayas", { token })).status).toBe(403)
+    expect((await call("/api/explore/prepare", { method: "POST", token, body: "{}" })).status).toBe(403)
+    expect((await call("/api/explore/acme/add", { method: "POST", token })).status).toBe(403)
+    expect((await call("/api/explore/boards")).status).toBe(200)
     expect((await call("/api/sources")).body.sources).toHaveLength(1)
   })
 

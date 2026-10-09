@@ -24,15 +24,31 @@ type RunResult = {
   suspicious: number
 }
 
-/** Never-run, failed, or last success older than 3 hours. Fresh successes are skipped. */
-async function loadDueSources(db: D1Database): Promise<SourceRow[]> {
+/**
+ * "throttled" (scheduled runs and the master) walks every board at most once
+ * in three hours. "catch_up" (a regular user's run) only covers what the last
+ * scheduled run left behind: boards added since, boards it never reached, and
+ * boards whose last attempt failed. With no scheduled run in the past day it
+ * falls back to boards older than a day.
+ */
+export type SourcePolicy = "throttled" | "catch_up"
+
+const STALE_SINCE: Record<SourcePolicy, string> = {
+  throttled: `datetime('now', '-3 hours')`,
+  catch_up: `max(
+    COALESCE((SELECT MAX(started_at) FROM cycle_runs WHERE kind = 'auto'), ''),
+    datetime('now', '-1 day')
+  )`,
+}
+
+async function loadDueSources(db: D1Database, policy: SourcePolicy): Promise<SourceRow[]> {
   const res = await db
     .prepare(
       `SELECT s.* FROM sources s
        WHERE s.enabled = 1 AND s.deleted_at IS NULL
          AND (
            s.last_run_at IS NULL
-           OR s.last_run_at < datetime('now', '-3 hours')
+           OR s.last_run_at < ${STALE_SINCE[policy]}
            OR COALESCE(
              (SELECT ok FROM source_runs r WHERE r.source_id = s.id ORDER BY r.id DESC LIMIT 1),
              0
@@ -902,8 +918,8 @@ export async function notifyNew(_env: Bindings): Promise<number> {
   return 0
 }
 
-export async function pickSources(env: Bindings): Promise<SourceRow[]> {
-  return loadDueSources(env.DB)
+export async function pickSources(env: Bindings, policy: SourcePolicy = "throttled"): Promise<SourceRow[]> {
+  return loadDueSources(env.DB, policy)
 }
 
 export async function addDiscovered(env: Bindings, key: string): Promise<TrackResult> {

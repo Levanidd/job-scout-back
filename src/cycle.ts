@@ -1,5 +1,5 @@
 import { message } from "./errors"
-import { notifyNew, pickSources, prefilterAndScore, runSourceStep } from "./ingest"
+import { notifyNew, pickSources, prefilterAndScore, runSourceStep, type SourcePolicy } from "./ingest"
 import type { Bindings, SourceRow } from "./types"
 
 const SCORE_CHUNK = 30
@@ -32,6 +32,7 @@ type CycleRow = {
   error: string | null
   origin: string | null
   user_id: number | null
+  score_queue: string
   run_id: number | null
   started_at: string | null
   updated_at: string | null
@@ -136,6 +137,17 @@ export async function failCycle(env: Bindings, error: unknown): Promise<void> {
   if (Number(failed.meta.changes)) await closeRun(env)
 }
 
+/** Lines a user up for scoring in the live cycle, unless they are already being scored or waiting. */
+async function queueScoring(env: Bindings, userId: number): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE cycles SET score_queue = json_insert(score_queue, '$[#]', CAST(?1 AS INTEGER))
+     WHERE id = 1 AND status = 'running' AND user_id IS NOT ?1
+       AND NOT EXISTS (SELECT 1 FROM json_each(cycles.score_queue) WHERE value = ?1)`,
+  )
+    .bind(userId)
+    .run()
+}
+
 /**
  * Starts a cycle, or leaves a live one alone so a second click / a stale poll
  * can re-kick the chain without wiping progress.
@@ -145,16 +157,18 @@ export async function startCycle(
   origin?: string,
   userId?: number,
   kind: CycleKind = "manual",
+  policy: SourcePolicy = "throttled",
 ): Promise<CycleView> {
   const current = await loadRow(env)
   if (current?.status === "running") {
     if (origin && !current.origin) {
       await env.DB.prepare(`UPDATE cycles SET origin = ? WHERE id = 1`).bind(origin).run()
     }
+    if (userId) await queueScoring(env, userId)
     return view(current)
   }
 
-  const sources = await pickSources(env)
+  const sources = await pickSources(env, policy)
   const items = sources.map((source) => ({ id: source.id, label: source.label }))
   const phase: CyclePhase = items.length === 0 ? "scoring" : "sources"
   const logged = await env.DB.prepare(
@@ -169,7 +183,7 @@ export async function startCycle(
        current_label = NULL, current_id = NULL,
        found = 0, fresh = 0, failed = 0, scored = 0, notified = 0,
        hops = 0, chunk_offset = 0, chunk_started_at = NULL,
-       error = NULL, origin = ?, user_id = ?, run_id = ?,
+       error = NULL, origin = ?, user_id = ?, score_queue = '[]', run_id = ?,
        started_at = datetime('now'), updated_at = datetime('now'), finished_at = NULL
      WHERE id = 1`,
   )
@@ -188,16 +202,27 @@ export async function startCycle(
   return row ? view(row) : await loadCycleView(env)
 }
 
-async function finish(env: Bindings, notified: number): Promise<void> {
-  await env.DB.prepare(
+/** Closes the cycle, or returns false when someone joined the queue after scoring ended. */
+async function finish(env: Bindings, notified: number): Promise<boolean> {
+  const closed = await env.DB.prepare(
     `UPDATE cycles SET status = 'done', phase = 'digest', notified = ?,
        current_label = NULL, current_id = NULL,
        updated_at = datetime('now'), finished_at = datetime('now')
-     WHERE id = 1`,
+     WHERE id = 1 AND json_array_length(score_queue) = 0`,
   )
     .bind(notified)
     .run()
-  await closeRun(env)
+  if (Number(closed.meta.changes)) {
+    await closeRun(env)
+    return true
+  }
+  await env.DB.prepare(
+    `UPDATE cycles SET phase = 'scoring',
+       user_id = json_extract(score_queue, '$[0]'), score_queue = json_remove(score_queue, '$[0]'),
+       updated_at = datetime('now')
+     WHERE id = 1`,
+  ).run()
+  return false
 }
 
 async function advance(env: Bindings, row: CycleRow): Promise<boolean> {
@@ -251,28 +276,35 @@ async function advance(env: Bindings, row: CycleRow): Promise<boolean> {
 
   if (row.phase === "scoring") {
     const userId = row.user_id
-    if (!userId) {
+    const step = userId ? await prefilterAndScore(env, userId, SCORE_CHUNK) : { scored: 0, remaining: 0, more: false }
+    const scored = row.scored + step.scored
+    if (step.more) {
       await env.DB.prepare(
-        `UPDATE cycles SET phase = 'digest', current_label = NULL, current_id = NULL, updated_at = datetime('now')
+        `UPDATE cycles SET scored = ?, done = ?, total = ?,
+           current_label = NULL, current_id = NULL, updated_at = datetime('now')
          WHERE id = 1`,
-      ).run()
+      )
+        .bind(scored, scored, scored + step.remaining)
+        .run()
       return true
     }
-    const step = await prefilterAndScore(env, userId, SCORE_CHUNK)
-    const scored = row.scored + step.scored
+    // This user is done: hand the scoring phase to the next one in the queue,
+    // or move on to the digest when nobody is waiting.
     await env.DB.prepare(
-      `UPDATE cycles SET scored = ?, done = ?, total = ?, phase = ?,
+      `UPDATE cycles SET scored = ?1, done = ?1, total = ?1,
+         phase = CASE WHEN json_array_length(score_queue) > 0 THEN 'scoring' ELSE 'digest' END,
+         user_id = CASE WHEN json_array_length(score_queue) > 0 THEN json_extract(score_queue, '$[0]') ELSE user_id END,
+         score_queue = CASE WHEN json_array_length(score_queue) > 0 THEN json_remove(score_queue, '$[0]') ELSE score_queue END,
          current_label = NULL, current_id = NULL, updated_at = datetime('now')
        WHERE id = 1`,
     )
-      .bind(scored, scored, scored + step.remaining, step.more ? "scoring" : "digest")
+      .bind(scored)
       .run()
     return true
   }
 
   const notified = await notifyNew(env)
-  await finish(env, notified)
-  return false
+  return !(await finish(env, notified))
 }
 
 /** One source, one scoring chunk, or the digest. Returns whether another hop is needed. */

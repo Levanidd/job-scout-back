@@ -1,8 +1,8 @@
-import { Hono } from "hono"
+import { Hono, type Context } from "hono"
 
 import { currentUser, masterGuard } from "../auth"
 import { enqueueTick, loadCycleView, requestOrigin, startCycle, tickOnce } from "../cycle"
-import { notifyNew, pickSources, prefilterAndScore } from "../ingest"
+import { notifyNew, pickSources, prefilterAndScore, type SourcePolicy } from "../ingest"
 import { SCHEDULE_TIMEZONE, loadSchedule, sanitizeTimes, saveSchedule } from "../schedule"
 import type { AppEnv } from "../types"
 
@@ -10,8 +10,13 @@ export const run = new Hono<AppEnv>()
 
 run.get("/api/run", async (c) => c.json(await loadCycleView(c.env)))
 
+function sourcePolicy(c: Context<AppEnv>): SourcePolicy {
+  return currentUser(c).role === "master" ? "throttled" : "catch_up"
+}
+
 run.post("/api/run", async (c) => {
-  const cycle = await startCycle(c.env, requestOrigin(c.req.url), currentUser(c).id)
+  const user = currentUser(c)
+  const cycle = await startCycle(c.env, requestOrigin(c.req.url), user.id, "manual", sourcePolicy(c))
   enqueueTick(c.env, c.executionCtx)
   return c.json(cycle)
 })
@@ -23,7 +28,7 @@ run.post("/api/run/tick", async (c) => {
 })
 
 run.get("/api/run/plan", async (c) => {
-  const sources = await pickSources(c.env)
+  const sources = await pickSources(c.env, sourcePolicy(c))
   return c.json({
     sources: sources.map((source) => ({
       id: source.id,

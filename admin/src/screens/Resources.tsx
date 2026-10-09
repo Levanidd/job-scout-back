@@ -1,3 +1,4 @@
+import { useApp } from "../app-context"
 import { oneOf, usePersistentState } from "../persist"
 import type { Source } from "../types"
 import { Discovery } from "./Discovery"
@@ -6,9 +7,9 @@ import { Sources } from "./Sources"
 
 export type ResourcePane = "discovery" | "explore" | "sources"
 
-const PANES: Array<{ id: ResourcePane; label: string }> = [
+const PANES: Array<{ id: ResourcePane; label: string; master?: boolean }> = [
   { id: "discovery", label: "Discovery" },
-  { id: "explore", label: "Исследовать" },
+  { id: "explore", label: "Исследовать", master: true },
   { id: "sources", label: "Источники" },
 ]
 
@@ -19,16 +20,20 @@ export function Resources({
   onOpenCompanyJobs: (company: { company_key: string }) => void
   onOpenSourceJobs: (source: Source) => void
 }) {
-  const [pane, setPane] = usePersistentState<ResourcePane>(
+  const { me } = useApp()
+  const master = me?.role === "master"
+  const [stored, setPane] = usePersistentState<ResourcePane>(
     "resources.pane",
     "discovery",
     oneOf("discovery", "explore", "sources"),
   )
+  const panes = PANES.filter((item) => !item.master || master)
+  const pane = panes.some((item) => item.id === stored) ? stored : "discovery"
 
   return (
     <>
       <div className="subtabs" role="tablist" aria-label="Ресурсы">
-        {PANES.map((item) => (
+        {panes.map((item) => (
           <button
             key={item.id}
             type="button"

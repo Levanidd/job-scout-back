@@ -1,7 +1,7 @@
 import { Hono } from "hono"
 
 import { adapters } from "../adapters"
-import { currentUser } from "../auth"
+import { currentUser, masterGuard } from "../auth"
 import { placeholders } from "../db"
 import { ensureExploreSources, listExploreBoards } from "../explore"
 import { addDiscovered, trackedCompanyKeys } from "../ingest"
@@ -48,6 +48,12 @@ discovery.post("/api/discovered/:key/dismiss", async (c) => {
     .run()
   return c.json({ ok: true })
 })
+
+// Explore re-fetches whole job boards on demand, past the 3-hour throttle
+// the cycle keeps, so only a master gets to run it.
+for (const path of ["/api/explore", "/api/explore/*"]) {
+  discovery.use(path, async (c, next) => masterGuard(c) ?? (await next()))
+}
 
 discovery.get("/api/explore/boards", async (c) => c.json({ boards: await listExploreBoards(c.env.DB) }))
 

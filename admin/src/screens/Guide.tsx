@@ -1,5 +1,6 @@
 import type { ReactNode } from "react"
 
+import { useApp } from "../app-context"
 import { RefreshIcon } from "../components/icons"
 
 /**
@@ -41,6 +42,8 @@ function Shot({ legend, children }: { legend: string[]; children: ReactNode }) {
 }
 
 export function Guide() {
+  const { me } = useApp()
+  const master = me?.role === "master"
   return (
     <div className="guide">
       <section className="card">
@@ -125,7 +128,7 @@ export function Guide() {
           <div className="guide-stack">
             <div className="guide-pills">
               <span className="guide-pill">Discovery</span>
-              <span className="guide-pill">Исследовать</span>
+              {master ? <span className="guide-pill">Исследовать</span> : null}
               <span className="guide-pill is-on">Источники</span>
             </div>
             <Hit n={1}>
