@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
 
 import { useApp } from "../app-context"
-import { RefreshIcon } from "../components/icons"
+import { DocumentIcon, PlusIcon, RefreshIcon } from "../components/icons"
 
 /**
  * Callout colours are deliberately none of the app's own: the buttons being
@@ -56,8 +56,19 @@ export function Guide() {
 
       <section className="card">
         <h3 className="card-title">1. Собрать свежие вакансии</h3>
-        <p className="card-sub">Обход всех включённых источников. Score ставится по вашему профилю, чужие оценки не меняются.</p>
-        <Shot legend={["«Прогнать» — запустить обход, идёт на сервере, вкладку можно закрыть", "«Обновить» — перечитать уже собранное, без обхода"]}>
+        <p className="card-sub">
+          Источники обходятся сами по расписанию несколько раз в день — обычно этого хватает. Score ставится по
+          вашему профилю, чужие оценки не меняются. Если прогон уже идёт, нажатие присоединит вас к нему: score
+          для вас посчитается сразу после текущего.
+        </p>
+        <Shot
+          legend={[
+            master
+              ? "«Прогнать» — обойти все источники, которые не обновлялись 3 часа, и посчитать score. Идёт на сервере, вкладку можно закрыть"
+              : "«Прогнать» — докачать источники, которые пропустил автопрогон или где была ошибка, и посчитать score для ваших новых вакансий. Идёт на сервере, вкладку можно закрыть",
+            "«Обновить» — перечитать уже собранное, без обхода",
+          ]}
+        >
           <div className="guide-chrome">
             <strong className="guide-brand">JobRadar</strong>
             <span className="muted">Анна</span>
@@ -79,7 +90,8 @@ export function Guide() {
             "Теги «должно содержать»: без совпадения вакансия даже не дойдёт до модели",
             "Теги «не должно»: одно совпадение — и вакансия отсеяна",
             "Чёрный список: компания скрыта у вас, у остальных остаётся",
-            "Текст профиля уходит в скоринг — это единственная ручка калибровки",
+            "Текст профиля уходит в скоринг — это единственная ручка калибровки. После правки — «Пересчитать»",
+            "«Скачать промпт для профиля» копирует промпт в буфер: вставьте его в Claude или ChatGPT вместе с резюме — ассистент расспросит вас и поможет собрать текст профиля",
           ]}
         >
           <div className="guide-stack">
@@ -109,7 +121,13 @@ export function Guide() {
               <Hit n={4}>
                 <span className="guide-textarea">Senior PM, B2B SaaS, Berlin или remote EU…</span>
               </Hit>
-              <span className="btn btn-primary btn-sm">Сохранить</span>
+              <div className="guide-row">
+                <span className="btn btn-primary btn-sm">Сохранить</span>
+                <span className="btn btn-sm">Пересчитать</span>
+                <Hit n={5}>
+                  <span className="btn btn-sm">Скачать промпт для профиля</span>
+                </Hit>
+              </div>
             </div>
           </div>
         </Shot>
@@ -153,8 +171,8 @@ export function Guide() {
       <section className="card">
         <h3 className="card-title">4. Разобрать ленту</h3>
         <p className="card-sub">
-          «Вакансии». По умолчанию видно то, что прошло ваш префильтр, со score от 50. Кнопка «Карточка» в конце
-          строки открывает вакансию целиком — с описанием, причиной оценки и заметками.
+          «Вакансии». По умолчанию видно то, что прошло ваш префильтр, со score от 50. Двойной клик по строке
+          открывает карточку вакансии — о ней следующий шаг.
         </p>
         <Shot
           legend={[
@@ -203,7 +221,62 @@ export function Guide() {
       </section>
 
       <section className="card">
-        <h3 className="card-title">5. Вести отклики</h3>
+        <h3 className="card-title">5. Карточка вакансии</h3>
+        <p className="card-sub">
+          Двойной клик по строке во «Вакансиях» или «Подался». Слева — тот же список: по нему можно переходить
+          между вакансиями, не возвращаясь назад.
+        </p>
+        <Shot
+          legend={[
+            "Статус — рядом с названием. Иконка документа открывает CV, которое ушло на эту вакансию",
+            "Название компании — все её вакансии, какие у нас есть",
+            "Новая вакансия: «Подался», «Посмотрел», «Позже». После отклика — «Интервью» и «Отказ». Повторное нажатие отменяет шаг",
+            "Этапы интервью: «+» добавляет этап с датой, карандаш и корзина — правка и удаление",
+            "Заметки видите только вы. Комментарий Claude и ссылку на CV записывает Claude через API",
+          ]}
+        >
+          <div className="guide-stack">
+            <div className="guide-row">
+              <strong>Head of Product</strong>
+              <Hit n={1}>
+                <span className="guide-row">
+                  <span className="icon-btn">
+                    <DocumentIcon />
+                  </span>
+                  <span className="badge badge-positive">Интервью</span>
+                </span>
+              </Hit>
+            </div>
+            <Hit n={2}>
+              <span className="cell-link">Beispiel Bank</span>
+            </Hit>
+            <Hit n={3}>
+              <span className="guide-row">
+                <span className="btn btn-primary btn-sm">Интервью</span>
+                <span className="btn btn-sm">Отказ</span>
+              </span>
+            </Hit>
+            <div className="guide-mini-card">
+              <span className="guide-row">
+                <span className="guide-mini-title">Этапы интервью · 2</span>
+                <Hit n={4}>
+                  <span className="icon-btn">
+                    <PlusIcon />
+                  </span>
+                </Hit>
+              </span>
+              <span className="muted">HR-скрининг · 3 мар.</span>
+              <span className="muted">Техническое интервью · 10 мар.</span>
+            </div>
+            <Hit n={5}>
+              <span className="guide-textarea">Отправила CV 3 марта, ждут ответ рекрутера…</span>
+            </Hit>
+          </div>
+        </Shot>
+      </section>
+
+      <section className="card">
+        <h3 className="card-title">6. Вести отклики</h3>
         <p className="card-sub">
           «Подался» — только то, куда отметились вы. «Статистика» считает вашу воронку, не общую.
         </p>
@@ -211,33 +284,31 @@ export function Guide() {
           legend={[
             "Фильтр по этапу: все, подался, интервью, отказ",
             "Клик по компании — все её вакансии, какие у нас есть",
-            "Этап меняется прямо в строке — подсвечен текущий",
-            "Заметки: с кем говорили и что дальше, их видите только вы",
+            "Этап, этапы интервью и заметки меняются в карточке — двойной клик по строке",
+            "«Добавить вакансию» — если откликнулись на позицию, которой нет в источниках",
           ]}
         >
           <div className="guide-stack">
-            <Hit n={1}>
-              <span className="guide-pills">
-                <span className="guide-pill is-on">Все</span>
-                <span className="guide-pill">Подался</span>
-                <span className="guide-pill">Интервью</span>
-                <span className="guide-pill">Отказ</span>
-              </span>
-            </Hit>
+            <div className="guide-row">
+              <Hit n={1}>
+                <span className="guide-pills">
+                  <span className="guide-pill is-on">Все</span>
+                  <span className="guide-pill">Подался</span>
+                  <span className="guide-pill">Интервью</span>
+                  <span className="guide-pill">Отказ</span>
+                </span>
+              </Hit>
+              <Hit n={4}>
+                <span className="btn btn-primary btn-sm">Добавить вакансию</span>
+              </Hit>
+            </div>
             <div className="guide-source-row">
               <strong>Head of Product</strong>
               <Hit n={2}>
                 <span className="cell-sub">Beispiel Bank</span>
               </Hit>
               <Hit n={3}>
-                <span className="btn btn-primary btn-sm">Интервью</span>
-              </Hit>
-              <span className="btn btn-sm">Отказ</span>
-            </div>
-            <div className="guide-mini-card">
-              <span className="guide-mini-title">Заметки</span>
-              <Hit n={4}>
-                <span className="guide-textarea">Отправила CV 3 марта, ждут ответ рекрутера…</span>
+                <span className="badge badge-neutral">Интервью</span>
               </Hit>
             </div>
           </div>
