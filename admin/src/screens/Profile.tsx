@@ -9,6 +9,25 @@ function sameTags(left: PrefilterRules, right: PrefilterRules): boolean {
   return JSON.stringify(left) === JSON.stringify(right)
 }
 
+/** Safari only lets a click write to the clipboard synchronously, so the text has to be at hand already. */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    const area = document.createElement("textarea")
+    area.value = text
+    area.setAttribute("readonly", "")
+    area.style.position = "fixed"
+    area.style.opacity = "0"
+    document.body.appendChild(area)
+    area.select()
+    const copied = document.execCommand("copy")
+    area.remove()
+    return copied
+  }
+}
+
 export function Profile({ subject }: { subject?: { id: number; name: string } } = {}) {
   const run = useAction()
   const { notify, refresh } = useApp()
@@ -20,10 +39,15 @@ export function Profile({ subject }: { subject?: { id: number; name: string } } 
   const [companies, setCompanies] = useState<BlacklistedCompany[]>([])
   const [pick, setPick] = useState("")
   const [busy, setBusy] = useState(false)
+  const [prompt, setPrompt] = useState("")
   const otherId = subject?.id
 
   const load = useCallback(async () => {
-    const result = await run(() => (otherId ? api.userProfile(otherId) : api.profile()))
+    const [result, shared] = await Promise.all([
+      run(() => (otherId ? api.userProfile(otherId) : api.profile())),
+      run(() => api.profilePrompt()),
+    ])
+    setPrompt(shared?.prompt ?? "")
     if (!result) return
     setContent(result.content)
     setSaved(result.content)
@@ -85,6 +109,15 @@ export function Profile({ subject }: { subject?: { id: number; name: string } } 
 
   function removeBlocked(key: string) {
     void persistBlacklist(blacklist.filter((item) => item.company_key !== key))
+  }
+
+  async function copyPrompt() {
+    if (!prompt) {
+      notify("Промпт ещё не задан", "error")
+      return
+    }
+    if (await copyText(prompt)) notify("Промпт скопирован. Вставьте его в Claude или ChatGPT вместе с резюме", "ok")
+    else notify("Буфер обмена недоступен", "error")
   }
 
   async function rescore() {
@@ -226,6 +259,13 @@ export function Profile({ subject }: { subject?: { id: number; name: string } } 
               </button>
               <button className="btn btn-sm" disabled={busy} onClick={() => void rescore()}>
                 Пересчитать
+              </button>
+              <button
+                className="btn btn-sm"
+                title="Копирует в буфер промпт: вставьте его в Claude или ChatGPT, и ассистент по вашему резюме соберёт профиль"
+                onClick={() => void copyPrompt()}
+              >
+                Скачать промпт для профиля
               </button>
             </div>
           </section>

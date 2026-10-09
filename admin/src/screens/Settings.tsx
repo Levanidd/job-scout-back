@@ -1,5 +1,6 @@
 import { AutoRunSettings, RunLog } from "./AutoRun"
 import { ModelPicker } from "./ModelPicker"
+import { ProfilePromptEditor } from "./ProfilePrompt"
 import { Users } from "./Users"
 
 function Heading({ children }: { children: string }) {
@@ -14,6 +15,7 @@ export function Settings() {
         <>
           <Heading>AI</Heading>
           <ModelPicker />
+          <ProfilePromptEditor />
           <Heading>Автозапуск</Heading>
           <AutoRunSettings />
           <RunLog />

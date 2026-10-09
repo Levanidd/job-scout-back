@@ -4,7 +4,16 @@ import { currentUser, masterGuard } from "../auth"
 import { message } from "../errors"
 import { prefilterAndScore, reapplyPrefilter } from "../ingest"
 import { isThinkingLevel, listModels, validateModel, type ThinkingLevel } from "../scoring"
-import { SETTING_MODEL, SETTING_THINKING, listOpenCompanies, settingsView, writeSetting } from "../settings"
+import {
+  PROFILE_PROMPT_MAX,
+  SETTING_MODEL,
+  SETTING_PROFILE_PROMPT,
+  SETTING_THINKING,
+  listOpenCompanies,
+  readProfilePrompt,
+  settingsView,
+  writeSetting,
+} from "../settings"
 import type { AppEnv, Bindings } from "../types"
 import { loadUserProfile, saveUserBlacklist, saveUserContent, saveUserPrefilter } from "../users"
 
@@ -86,6 +95,21 @@ profile.put("/api/profile", async (c) => {
 })
 
 profile.post("/api/profile/rescore", async (c) => c.json(await resetAndScore(c.env, currentUser(c).id)))
+
+profile.get("/api/profile/prompt", async (c) => c.json({ prompt: await readProfilePrompt(c.env) }))
+
+profile.put("/api/profile/prompt", async (c) => {
+  const denied = masterGuard(c)
+  if (denied) return denied
+  const body = await c.req.json<{ prompt?: unknown }>().catch(() => ({}) as { prompt?: unknown })
+  const prompt = typeof body.prompt === "string" ? body.prompt.trim() : ""
+  if (!prompt) return c.json({ error: "Промпт не может быть пустым" }, 400)
+  if (prompt.length > PROFILE_PROMPT_MAX) {
+    return c.json({ error: `Промпт длиннее ${PROFILE_PROMPT_MAX} символов` }, 400)
+  }
+  await writeSetting(c.env, SETTING_PROFILE_PROMPT, prompt)
+  return c.json({ prompt })
+})
 
 profile.get("/api/settings", async (c) => c.json(await settingsView(c.env)))
 

@@ -485,6 +485,24 @@ describe("profile", () => {
     expect(loaded.body.companies).toEqual([{ company_key: "acme", company: "Acme GmbH" }])
   })
 
+  it("serves the profile prompt to everyone and lets only the master change it", async () => {
+    const seeded = (await call("/api/profile/prompt")).body.prompt as string
+    expect(seeded.startsWith("You are an expert in prompt engineering")).toBe(true)
+    expect(seeded.endsWith("Start with Step 1: ask for my resume.")).toBe(true)
+    expect(seeded).toContain("I'll paste the final prompt")
+    expect(seeded).not.toContain("''")
+
+    const created = await call("/api/users", { method: "POST", body: JSON.stringify({ name: "Лена" }) })
+    const token = created.body.user.token as string
+    expect((await call("/api/profile/prompt", { token })).body.prompt).toBe(seeded)
+    const put = (prompt: unknown, as?: string) =>
+      call("/api/profile/prompt", { method: "PUT", body: JSON.stringify({ prompt }), ...(as ? { token: as } : {}) })
+    expect((await put("new", token)).status).toBe(403)
+    expect((await put("   ")).status).toBe(400)
+    expect(await put("  Ask for my CV.  ")).toMatchObject({ status: 200, body: { prompt: "Ask for my CV." } })
+    expect((await call("/api/profile/prompt", { token })).body.prompt).toBe("Ask for my CV.")
+  })
+
   it("refuses a put with nothing in it", async () => {
     expect(await call("/api/profile", { method: "PUT", body: JSON.stringify({}) })).toMatchObject({ status: 400 })
   })

@@ -399,6 +399,14 @@ export const api = {
     return post("/profile/rescore")
   },
 
+  profilePrompt(): Promise<{ prompt: string }> {
+    return request("/profile/prompt")
+  },
+
+  saveProfilePrompt(prompt: string): Promise<{ prompt: string }> {
+    return request("/profile/prompt", { method: "PUT", body: JSON.stringify({ prompt }) })
+  },
+
   settings(): Promise<Settings> {
     return request("/settings")
   },

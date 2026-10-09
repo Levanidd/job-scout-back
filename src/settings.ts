@@ -18,6 +18,13 @@ export const SETTING_THINKING = "gemini_thinking_level"
 export const SETTING_PREFILTER_KEEP = "prefilter_keep"
 export const SETTING_PREFILTER_DROP = "prefilter_drop"
 export const SETTING_COMPANY_BLACKLIST = "company_blacklist"
+export const SETTING_PROFILE_PROMPT = "profile_prompt"
+
+export const PROFILE_PROMPT_MAX = 20000
+
+export async function readProfilePrompt(env: Bindings): Promise<string> {
+  return (await read(env, SETTING_PROFILE_PROMPT)) ?? ""
+}
 
 export type BlacklistedCompany = { company_key: string; company: string }
 
