@@ -8,12 +8,57 @@ const GUESSABLE = ["greenhouse", "lever", "ashby", "personio", "workable", "smar
 
 const HOST_NOISE = new Set(["www", "careers", "career", "jobs", "job", "apply", "hiring", "join"])
 
+/**
+ * Branded Avature boards live at `/<locale>/<section>/SearchJobs`, not on
+ * `*.avature.net`. The listing URL is that path with the query dropped.
+ */
+export function avatureBoard(url: string): string {
+  try {
+    const parsed = new URL(url)
+    const path = parsed.pathname.replace(/\/+$/, "")
+    const cut = path.search(/\/SearchJobs\b/i)
+    const base = cut >= 0 ? path.slice(0, cut) : path
+    return `${parsed.origin}${base}/SearchJobs`
+  } catch {
+    return url
+  }
+}
+
+/** Milch & Zucker renders the board on the company host and calls its own API. */
+export function gjbBoard(url: string): string {
+  try {
+    return new URL(url).origin
+  } catch {
+    return url
+  }
+}
+
+/**
+ * The board the SuccessFactors adapter fetches. Drops the search page, a
+ * saved-search category and the query string, and keeps a brand path
+ * (`/Bluebeam`) that several tenants share one host through.
+ */
+export function successfactorsBoard(url: string): string {
+  try {
+    const parsed = new URL(url)
+    const path = parsed.pathname
+      .replace(/\/go\/[^/]+\/\d+(?:\/\d+)?\/?$/i, "")
+      .replace(/\/(?:search|tile-search-results|services\/recruiting\/v1\/jobs)\/?$/i, "")
+      .replace(/\/+$/, "")
+    return parsed.origin + path
+  } catch {
+    return url
+  }
+}
+
 const ATS_MARKERS: {
   re: RegExp
   provider: string
   group: number
   useUrl?: boolean
   build?: (match: RegExpMatchArray) => string
+  /** Turns the page URL into the token the adapter fetches. */
+  board?: (url: string) => string
 }[] = [
   // Platforms that host a page on someone else's domain come first: a fund's
   // talent network or a corporate group's site links the Greenhouse and Lever
@@ -22,6 +67,33 @@ const ATS_MARKERS: {
   { re: /cdn\.radancy\.(?:eu|com)|tbcdn\.talentbrew\.com/i, provider: "radancy", group: 0, useUrl: true },
   { re: /cdn\.getro\.com/i, provider: "getro", group: 0, useUrl: true },
   { re: /"board"\s*:\s*\{\s*"id"\s*:\s*"[a-z0-9_-]+"/i, provider: "consider", group: 0, useUrl: true },
+  // A branded RMK host (jobs.dkb.de) never says successfactors in its own URL.
+  // The page loads the SuccessFactors runtime, and that page is the board.
+  {
+    re: /https?:\/\/[a-z0-9.-]*successfactors\.(?:eu|com)\b|jobs2web\.com/i,
+    provider: "successfactors",
+    group: 0,
+    useUrl: true,
+    board: successfactorsBoard,
+  },
+  // A branded Avature host (careers.unicredit.eu) loads its portal runtime.
+  // The board is that page's SearchJobs path, not the script URL.
+  {
+    re: /\/ASSET\/portal\//i,
+    provider: "avature",
+    group: 0,
+    useUrl: true,
+    board: avatureBoard,
+  },
+  // Milch & Zucker (jobs.commerzbank.com) names its client script, and the
+  // API host is only inside that script. The careers origin is the token.
+  {
+    re: /gjb_scripts\.js/i,
+    provider: "gjb",
+    group: 0,
+    useUrl: true,
+    board: gjbBoard,
+  },
   // Branded career sites list their openings but link each one to the Workday
   // posting; the tenant, instance and site in that link are the whole board.
   {
@@ -71,7 +143,8 @@ export function matchMarkers(haystack: string, url: string): { provider: string;
   for (const marker of ATS_MARKERS) {
     const m = haystack.match(marker.re)
     if (!m) continue
-    const token = marker.build ? marker.build(m) : marker.useUrl ? url : m[marker.group]
+    const raw = marker.build ? marker.build(m) : marker.useUrl ? url : m[marker.group]
+    const token = raw && marker.board ? marker.board(raw) : raw
     if (token) return { provider: marker.provider, token }
   }
   return null

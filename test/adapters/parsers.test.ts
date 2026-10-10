@@ -454,6 +454,45 @@ describe("new career-ops boards", () => {
     })
   })
 
+  it("reads a branded SuccessFactors board off the runtime script", () => {
+    const page = `<script src="https://performancemanager5.successfactors.eu/verp/vmod_v1/ui/extlib/jquery_3.5.1/jquery.js"></script>`
+    expect(matchMarkers(page, "https://jobs.dkb.de/search/?q=&searchResultView=LIST")).toEqual({
+      provider: "successfactors",
+      token: "https://jobs.dkb.de",
+    })
+    expect(matchMarkers(page, "https://careers.nemetschek.com/Bluebeam/search/")).toEqual({
+      provider: "successfactors",
+      token: "https://careers.nemetschek.com/Bluebeam",
+    })
+    expect(
+      matchMarkers(`<script src="https://rmk-map-12.jobs2web.com/map.js"></script>`, "https://jobs.example.com/go/All-Jobs/9170201/"),
+    ).toEqual({ provider: "successfactors", token: "https://jobs.example.com" })
+  })
+
+  it("reads a branded Avature board off the portal runtime", () => {
+    const page = `<script src="/ASSET/portal/jquery/jquerycore/3.7.1/jquery.min.js"></script>`
+    expect(matchMarkers(page, "https://careers.unicredit.eu/en_GB/jobsuche")).toEqual({
+      provider: "avature",
+      token: "https://careers.unicredit.eu/en_GB/jobsuche/SearchJobs",
+    })
+    expect(
+      matchMarkers(page, "https://careers.unicredit.eu/en_GB/jobsuche/SearchJobs/?jobOffset=15"),
+    ).toEqual({
+      provider: "avature",
+      token: "https://careers.unicredit.eu/en_GB/jobsuche/SearchJobs",
+    })
+  })
+
+  it("reads a Milch & Zucker board off its client script", () => {
+    const page = `<script src="/script/gjb_scripts.js"></script>`
+    expect(
+      matchMarkers(
+        page,
+        "https://jobs.commerzbank.com/index.php?ac=search_result&search_criterion_channel[]=12&language=2",
+      ),
+    ).toEqual({ provider: "gjb", token: "https://jobs.commerzbank.com" })
+  })
+
   it("reads an EU-hosted Greenhouse embed off a company page", () => {
     const page = `<script src="https://boards.eu.greenhouse.io/embed/job_board/js?for=lucanetgroup"></script>`
     expect(matchMarkers(page, "https://www.lucanet.com/en/careers/jobs/")).toEqual({

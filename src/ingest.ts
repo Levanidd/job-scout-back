@@ -149,9 +149,11 @@ async function loadBoard(
     return fetchCache.jobs
   }
   const adapter = getAdapter(source.provider)
+  // Branded Avature is ~40 listing pages. 20s was the whole budget and a slow
+  // hop still finishes before the 45s stuck-cycle check.
   const jobs = await timed(
     adapter.fetchJobs(source.token, env),
-    20_000,
+    35_000,
     `${source.label}: fetch timed out`,
   )
   fetchCache = { key, jobs, at: Date.now() }

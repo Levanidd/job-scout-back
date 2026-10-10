@@ -19,6 +19,7 @@ import { deutschebahn } from "./deutschebahn"
 import { eightfold } from "./eightfold"
 import { flowxtra } from "./flowxtra"
 import { gem } from "./gem"
+import { gjb } from "./gjb"
 import { generalistWorld } from "./generalist-world"
 import { getonbrd } from "./getonbrd"
 import { getro } from "./getro"
@@ -94,6 +95,7 @@ export const adapters: Adapter[] = [
   jazzhr,
   jobvite,
   beesite,
+  gjb,
   avature,
   radancy,
   csod,
